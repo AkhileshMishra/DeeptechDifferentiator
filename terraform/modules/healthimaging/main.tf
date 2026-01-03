@@ -1,0 +1,135 @@
+# ============================================================================
+# AWS HEALTHIMAGING MODULE
+# Healthcare Imaging MLOps Platform
+# ============================================================================
+
+# ============================================================================
+# HEALTHIMAGING DATA STORE
+# ============================================================================
+
+resource "aws_medical_imaging_datastore" "main" {
+  datastore_name = var.data_store_name
+
+  kms_key_arn = var.kms_key_id
+
+  tags = merge(var.tags, {
+    Name = var.data_store_name
+  })
+}
+
+# ============================================================================
+# IAM ROLE FOR HEALTHIMAGING ACCESS
+# ============================================================================
+
+resource "aws_iam_role" "healthimaging_access" {
+  name = "${var.name_prefix}-healthimaging-access-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = [
+            "medical-imaging.amazonaws.com",
+            "lambda.amazonaws.com",
+            "sagemaker.amazonaws.com"
+          ]
+        }
+      }
+    ]
+  })
+
+  tags = var.tags
+}
+
+resource "aws_iam_role_policy" "healthimaging_access" {
+  name = "${var.name_prefix}-healthimaging-access-policy"
+  role = aws_iam_role.healthimaging_access.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "medical-imaging:GetDatastore",
+          "medical-imaging:ListDatastores",
+          "medical-imaging:GetImageSet",
+          "medical-imaging:GetImageSetMetadata",
+          "medical-imaging:GetImageFrame",
+          "medical-imaging:ListImageSetVersions",
+          "medical-imaging:SearchImageSets",
+          "medical-imaging:StartDICOMImportJob",
+          "medical-imaging:GetDICOMImportJob",
+          "medical-imaging:ListDICOMImportJobs"
+        ]
+        Resource = [
+          aws_medical_imaging_datastore.main.arn,
+          "${aws_medical_imaging_datastore.main.arn}/*"
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "kms:Decrypt",
+          "kms:GenerateDataKey"
+        ]
+        Resource = var.kms_key_id
+      }
+    ]
+  })
+}
+
+# ============================================================================
+# S3 BUCKET FOR DICOM INGESTION
+# ============================================================================
+
+resource "aws_s3_bucket" "dicom_ingestion" {
+  bucket = "${var.name_prefix}-dicom-ingestion"
+
+  tags = merge(var.tags, {
+    Name = "${var.name_prefix}-dicom-ingestion"
+  })
+}
+
+resource "aws_s3_bucket_versioning" "dicom_ingestion" {
+  bucket = aws_s3_bucket.dicom_ingestion.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "dicom_ingestion" {
+  bucket = aws_s3_bucket.dicom_ingestion.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      kms_master_key_id = var.kms_key_id
+      sse_algorithm     = "aws:kms"
+    }
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "dicom_ingestion" {
+  bucket = aws_s3_bucket.dicom_ingestion.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+# ============================================================================
+# CLOUDWATCH LOG GROUP
+# ============================================================================
+
+resource "aws_cloudwatch_log_group" "healthimaging" {
+  count = var.enable_logging ? 1 : 0
+
+  name              = var.log_group_name
+  retention_in_days = 30
+
+  tags = var.tags
+}

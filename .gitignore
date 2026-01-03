@@ -1,0 +1,101 @@
+# Terraform
+*.tfstate
+*.tfstate.*
+*.tfplan
+.terraform/
+.terraform.lock.hcl
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+terraform.tfvars
+*.auto.tfvars
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+
+# OS
+.DS_Store
+Thumbs.db
+*.log
+
+# Docker
+*.tar
+
+# AWS
+.aws/
+
+# Secrets
+*.pem
+*.key
+secrets.yaml
+secrets.json
+.env
+.env.*
+
+# Build artifacts
+*.zip
+deployment-outputs.json
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Model artifacts
+*.h5
+*.pb
+*.onnx
+model/
+models/
+
+# Data
+data/
+datasets/
+*.dcm
+*.dicom

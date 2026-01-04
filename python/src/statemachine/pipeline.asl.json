@@ -1,0 +1,11 @@
+{
+  "Comment": "A description of my state machine",
+  "StartAt": "ProcessImage",
+  "States": {
+    "ProcessImage": {
+      "Type": "Pass",
+      "Result": "Image Processed",
+      "End": true
+    }
+  }
+}

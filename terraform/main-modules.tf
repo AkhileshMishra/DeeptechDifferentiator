@@ -275,17 +275,23 @@ module "eventbridge" {
   # Event rules for automation
   rules = {
     image_verified = {
-      description = "Trigger SageMaker pipeline when image is verified"
+      description = "Trigger SageMaker pipeline when image is verified (workshop deterministic)"
       pattern = {
-        source      = ["aws.healthimaging"]
-        detail-type = ["HealthImaging ImageVerified"]
+        source      = ["imaging.mlops"]
+        detail-type = ["ImageVerified"]
       }
       targets = [{
-        arn = module.sagemaker.pipeline_arn
-        role_arn = module.iam_roles.eventbridge_invoke_role_arn
+        arn = module.lambda_functions.pipeline_trigger_function_arn
+
+        # Optional: pass a clean payload to Lambda for logging/parameter mapping.
+        input = jsonencode({
+          trigger = "workshop"
+          datastore_id = module.healthimaging.data_store_id
+        })
       }]
     }
 
+    # Keep these ONLY if you have the Lambda code packaged and want the extra wow.
     model_training_complete = {
       description = "Run model evaluation when training completes"
       pattern = {
@@ -297,7 +303,6 @@ module "eventbridge" {
       }
       targets = [{
         arn = module.lambda_functions.model_evaluation_function_arn
-        role_arn = module.iam_roles.eventbridge_invoke_role_arn
       }]
     }
 
@@ -309,21 +314,21 @@ module "eventbridge" {
       }
       targets = [{
         arn = module.lambda_functions.model_registry_function_arn
-        role_arn = module.iam_roles.eventbridge_invoke_role_arn
       }]
     }
 
-    alert_rule_violation = {
-      description = "Send notification when metrics exceed threshold"
-      pattern = {
-        source      = ["aws.cloudwatch"]
-        detail-type = ["CloudWatch Alarm State Change"]
-      }
-      targets = [{
-        arn = var.sns_alert_topic_arn
-        role_arn = module.iam_roles.eventbridge_invoke_role_arn
-      }]
-    }
+    # Strongly recommend disabling this for the workshop unless you add back a working
+    # EventBridge->SNS invoke role (since you removed module.iam_roles).
+    # alert_rule_violation = {
+    #   description = "Send notification when metrics exceed threshold"
+    #   pattern = {
+    #     source      = ["aws.cloudwatch"]
+    #     detail-type = ["CloudWatch Alarm State Change"]
+    #   }
+    #   targets = [{
+    #     arn = var.sns_alert_topic_arn
+    #   }]
+    # }
   }
 
   tags = local.common_tags
@@ -534,29 +539,6 @@ module "monitoring" {
     module.sagemaker,
     module.lambda_functions
   ]
-}
-
-# ============================================================================
-# IAM ROLES & POLICIES
-# ============================================================================
-
-module "iam_roles" {
-  source = "./modules/iam"
-
-  name_prefix = local.name_prefix
-
-  # Define cross-service permissions
-  service_permissions = {
-    eventbridge_invoke = {
-      services = ["sagemaker", "lambda", "sns"]
-    }
-    healthimaging_to_sagemaker = {
-      source_service = "healthimaging"
-      target_service = "sagemaker"
-    }
-  }
-
-  tags = local.common_tags
 }
 
 # ============================================================================

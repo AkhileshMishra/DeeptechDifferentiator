@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeepTech Triage - Rapid Review</title>
+    <script src="https://unpkg.com/cornerstone-core@2.6.1/dist/cornerstone.min.js"></script>
+    <script src="https://unpkg.com/cornerstone-math@0.1.9/dist/cornerstoneMath.min.js"></script>
+    <script src="https://unpkg.com/cornerstone-tools@6.0.0/dist/cornerstoneTools.min.js"></script>
+    <script src="https://unpkg.com/cornerstone-wado-image-loader@4.1.5/dist/cornerstoneWADOImageLoader.bundle.min.js"></script>
+    <script src="https://unpkg.com/dicom-parser@1.8.13/dist/dicomParser.min.js"></script>
+
+    <style>
+        body { background: #000; color: #fff; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; margin: 0; }
+        #viewer { width: 512px; height: 512px; border: 1px solid #444; margin-top: 20px; position: relative; }
+        .controls { margin-top: 20px; display: flex; gap: 10px; }
+        button { padding: 10px 20px; background: #232f3e; color: white; border: 1px solid #444; cursor: pointer; border-radius: 4px; }
+        button:hover { background: #444; }
+        button.verify { background: #28a745; border-color: #28a745; }
+        #status { margin-top: 10px; color: #aaa; font-size: 0.9em; }
+    </style>
+</head>
+<body>
+    <h2>DeepTech Triage: Remote Review</h2>
+    
+    <div id="viewer" oncontextmenu="return false"></div>
+
+    <div class="controls">
+        <button onclick="loadDemoImage()">Load 1GB Scan (Stream)</button>
+        <button class="verify" onclick="verifyImage()">✅ Verify & Train</button>
+    </div>
+    <div id="status">Waiting for input...</div>
+
+    <script>
+        // CONFIGURATION - REPLACE WITH YOUR ACTUAL API ENDPOINT FROM TERRAFORM OUTPUTS
+        const API_ENDPOINT = 'https://YOUR_API_GATEWAY_URL.execute-api.us-east-1.amazonaws.com/prod';
+        const IMAGE_SET_ID = 'your-default-imageset-id'; // You can also fetch this dynamically
+
+        cornerstoneWADOImageLoader.external.cornerstone = cornerstone;
+
+        // Initialize Viewer
+        const element = document.getElementById('viewer');
+        cornerstone.enable(element);
+
+        async function loadDemoImage() {
+            document.getElementById('status').innerText = "Streaming from AWS HealthImaging...";
+            
+            try {
+                // 1. Get the Presigned URL (or Proxy URL) from our Lambda
+                const response = await fetch(`${API_ENDPOINT}/get-image-frame?imageSetId=${IMAGE_SET_ID}`);
+                const data = await response.json();
+                
+                if (!data.url) throw new Error("No URL returned from API");
+
+                // 2. Load Image into Cornerstone
+                // Note: We use the 'wadouri:' prefix to tell cornerstone to fetch via HTTP
+                const imageId = 'wadouri:' + data.url;
+                
+                const image = await cornerstone.loadImage(imageId);
+                cornerstone.displayImage(element, image);
+                
+                // Enable Tools (Mouse input)
+                const WwwcTool = cornerstoneTools.WwwcTool;
+                cornerstoneTools.addTool(WwwcTool);
+                cornerstoneTools.setToolActive('Wwwc', { mouseButtonMask: 1 });
+                
+                document.getElementById('status').innerText = "Streaming Active (60fps)";
+            } catch (err) {
+                console.error(err);
+                document.getElementById('status').innerText = "Error: " + err.message;
+            }
+        }
+
+        async function verifyImage() {
+            document.getElementById('status').innerText = "Triggering MLOps Pipeline...";
+            try {
+                await fetch(`${API_ENDPOINT}/trigger-pipeline`, {
+                    method: 'POST',
+                    body: JSON.stringify({ imageSetId: IMAGE_SET_ID, action: 'VERIFY' })
+                });
+                document.getElementById('status').innerText = "✅ Pipeline Triggered! Check SageMaker.";
+            } catch (err) {
+                document.getElementById('status').innerText = "Trigger Failed.";
+            }
+        }
+    </script>
+</body>
+</html>

@@ -25,15 +25,14 @@ terraform {
 
 provider "aws" {
   region = var.aws_region
-
+  
   default_tags {
     tags = {
-      Project             = var.project_name
-      Environment         = var.environment
-      ManagedByTerraform  = "true"
-      CreatedDate         = timestamp()
-      Owner               = var.owner_email
-      CostCenter          = var.cost_center
+      Project     = var.project_name
+      Environment = var.environment
+      Owner       = var.owner_email
+      # REMOVED: CreatedDate = timestamp() 
+      # Reason: timestamp() forces an update on every 'terraform apply'
     }
   }
 }

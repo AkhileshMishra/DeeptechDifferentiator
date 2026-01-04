@@ -97,7 +97,7 @@ resource "aws_iam_role_policy" "lambda_custom" {
 resource "aws_lambda_function" "image_ingestion" {
   function_name = "${var.name_prefix}-image-ingestion"
   role          = aws_iam_role.lambda_execution.arn
-  handler       = "index.handler"
+  handler       = "handler.lambda_handler"
   runtime       = "python3.11"
   timeout       = 300
   memory_size   = 1024
@@ -128,7 +128,7 @@ resource "aws_lambda_function" "image_ingestion" {
 resource "aws_lambda_function" "pipeline_trigger" {
   function_name = "${var.name_prefix}-pipeline-trigger"
   role          = aws_iam_role.lambda_execution.arn
-  handler       = "index.handler"
+  handler       = "handler.lambda_handler"
   runtime       = "python3.11"
   timeout       = 60
   memory_size   = 256
@@ -158,7 +158,7 @@ resource "aws_lambda_function" "pipeline_trigger" {
 resource "aws_lambda_function" "model_evaluation" {
   function_name = "${var.name_prefix}-model-evaluation"
   role          = aws_iam_role.lambda_execution.arn
-  handler       = "index.handler"
+  handler       = "handler.lambda_handler"
   runtime       = "python3.11"
   timeout       = 300
   memory_size   = 512
@@ -190,7 +190,7 @@ resource "aws_lambda_function" "model_evaluation" {
 resource "aws_lambda_function" "model_registry" {
   function_name = "${var.name_prefix}-model-registry"
   role          = aws_iam_role.lambda_execution.arn
-  handler       = "index.handler"
+  handler       = "handler.lambda_handler"
   runtime       = "python3.11"
   timeout       = 120
   memory_size   = 256

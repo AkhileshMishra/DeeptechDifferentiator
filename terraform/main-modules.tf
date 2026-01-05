@@ -13,14 +13,7 @@ terraform {
     }
   }
 
-  backend "s3" {
-    # Configure these values via environment or backend config file
-    # bucket         = "your-terraform-state-bucket"
-    # key            = "healthcare-imaging/terraform.tfstate"
-    # region         = "us-east-1"
-    # encrypt        = true
-    # dynamodb_table = "terraform-lock"
-  }
+  
 }
 
 provider "aws" {

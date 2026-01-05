@@ -36,7 +36,7 @@ variable "secrets" {
   description = "Map of secrets to create"
   type        = map(string)
   default     = {}
-  
+  sensitive   = false
 }
 
 variable "tags" {

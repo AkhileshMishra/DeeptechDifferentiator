@@ -9,12 +9,11 @@
 
 resource "aws_cloudwatch_event_bus" "main" {
   name = var.event_bus_name
-
   tags = var.tags
 }
 
 # ============================================================================
-# EVENT RULES
+# EVENT RULES (FIXED)
 # ============================================================================
 
 resource "aws_cloudwatch_event_rule" "rules" {
@@ -23,7 +22,13 @@ resource "aws_cloudwatch_event_rule" "rules" {
   name           = "${var.name_prefix}-${each.key}"
   description    = each.value.description
   event_bus_name = aws_cloudwatch_event_bus.main.name
-  event_pattern  = jsonencode(each.value.pattern)
+  
+  # FIXED: Explicitly construct JSON to handle optional 'detail' and 'detail-type'
+  event_pattern = jsonencode({
+    source      = each.value.pattern.source
+    detail-type = each.value.pattern["detail-type"] # Use brackets for keys with dashes
+    detail      = each.value.pattern.detail
+  })
 
   tags = var.tags
 }
@@ -34,12 +39,18 @@ resource "aws_cloudwatch_event_target" "targets" {
   rule           = aws_cloudwatch_event_rule.rules[each.key].name
   event_bus_name = aws_cloudwatch_event_bus.main.name
   target_id      = "${each.key}-target"
+  
   arn            = each.value.targets[0].arn
-  role_arn       = each.value.targets[0].role_arn
+  
+  # FIXED: Use try() to safely handle optional role_arn (it might be null)
+  role_arn       = try(each.value.targets[0].role_arn, null)
+  
+  # FIXED: Add support for 'input' (it might be null)
+  input          = try(each.value.targets[0].input, null)
 }
 
 # ============================================================================
-# IAM ROLE FOR EVENTBRIDGE
+# IAM ROLE FOR EVENTBRIDGE (KEPT AS IS)
 # ============================================================================
 
 resource "aws_iam_role" "eventbridge_invoke" {
@@ -94,7 +105,7 @@ resource "aws_iam_role_policy" "eventbridge_invoke" {
 }
 
 # ============================================================================
-# DEAD LETTER QUEUE
+# DEAD LETTER QUEUE (KEPT AS IS)
 # ============================================================================
 
 resource "aws_sqs_queue" "dlq" {
@@ -116,8 +127,8 @@ resource "aws_sqs_queue_policy" "dlq" {
         Principal = {
           Service = "events.amazonaws.com"
         }
-        Action   = "sqs:SendMessage"
-        Resource = aws_sqs_queue.dlq.arn
+        Action    = "sqs:SendMessage"
+        Resource  = aws_sqs_queue.dlq.arn
       }
     ]
   })

@@ -1,5 +1,6 @@
 resource "awscc_healthlake_fhir_datastore" "store" {
-  datastore_name         = "healthtech-store-${var.env}"
+  # FIXED: Changed var.env to var.environment
+  datastore_name         = "healthtech-store-${var.environment}"
   datastore_type_version = "R4"
 
   preload_data_config = {

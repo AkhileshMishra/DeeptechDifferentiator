@@ -9,22 +9,27 @@ variable "name_prefix" {
 }
 
 variable "event_bus_name" {
-  description = "Name of the custom event bus"
+  description = "Name of the event bus"
   type        = string
 }
 
 variable "rules" {
   description = "Map of event rules"
+  # FIXED: Updated types to allow optional 'input' and 'detail'
   type = map(object({
     description = string
     pattern = object({
       source      = list(string)
       detail-type = list(string)
+      # Allow detail to be null or a map
       detail      = optional(map(any))
     })
     targets = list(object({
       arn      = string
-      role_arn = string
+      # Allow role_arn to be null (Lambdas don't need it)
+      role_arn = optional(string)
+      # Allow input to be passed (JSON string)
+      input    = optional(string)
     }))
   }))
 }

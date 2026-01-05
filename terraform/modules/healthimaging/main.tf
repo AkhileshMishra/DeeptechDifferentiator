@@ -4,15 +4,18 @@
 # ============================================================================
 
 # ============================================================================
-# HEALTHIMAGING DATA STORE
+# HEALTHIMAGING DATA STORE (Using AWS Cloud Control Provider)
 # ============================================================================
 
 resource "awscc_healthimaging_datastore" "main" {
-  datastore_name = var.datastore_name
-  kms_key_arn    = var.kms_key_arn
+  # Maps the input variable "data_store_name" to the resource argument "datastore_name"
+  datastore_name = var.data_store_name
+  
+  # Maps the input variable "kms_key_id" to the resource argument "kms_key_arn"
+  kms_key_arn    = var.kms_key_id
+  
   tags           = var.tags
 }
-
 
 # ============================================================================
 # IAM ROLE FOR HEALTHIMAGING ACCESS
@@ -51,29 +54,13 @@ resource "aws_iam_role_policy" "healthimaging_access" {
       {
         Effect = "Allow"
         Action = [
-          "medical-imaging:GetDatastore",
-          "medical-imaging:ListDatastores",
           "medical-imaging:GetImageSet",
-          "medical-imaging:GetImageSetMetadata",
           "medical-imaging:GetImageFrame",
-          "medical-imaging:ListImageSetVersions",
-          "medical-imaging:SearchImageSets",
-          "medical-imaging:StartDICOMImportJob",
-          "medical-imaging:GetDICOMImportJob",
-          "medical-imaging:ListDICOMImportJobs"
+          "medical-imaging:GetImageSetMetadata",
+          "medical-imaging:SearchImageSets"
         ]
-        Resource = [
-          aws_medical_imaging_datastore.main.arn,
-          "${aws_medical_imaging_datastore.main.arn}/*"
-        ]
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "kms:Decrypt",
-          "kms:GenerateDataKey"
-        ]
-        Resource = var.kms_key_id
+        # FIXED: References the ARN from the awscc provider resource
+        Resource = awscc_healthimaging_datastore.main.datastore_arn
       }
     ]
   })
@@ -85,6 +72,7 @@ resource "aws_iam_role_policy" "healthimaging_access" {
 
 resource "aws_s3_bucket" "dicom_ingestion" {
   bucket = "${var.name_prefix}-dicom-ingestion"
+  force_destroy = true # Allow destruction for workshops
 
   tags = merge(var.tags, {
     Name = "${var.name_prefix}-dicom-ingestion"
@@ -116,17 +104,4 @@ resource "aws_s3_bucket_public_access_block" "dicom_ingestion" {
   block_public_policy     = true
   ignore_public_acls      = true
   restrict_public_buckets = true
-}
-
-# ============================================================================
-# CLOUDWATCH LOG GROUP
-# ============================================================================
-
-resource "aws_cloudwatch_log_group" "healthimaging" {
-  count = var.enable_logging ? 1 : 0
-
-  name              = var.log_group_name
-  retention_in_days = 30
-
-  tags = var.tags
 }

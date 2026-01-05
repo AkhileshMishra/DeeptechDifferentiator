@@ -416,7 +416,7 @@ module "lambda_functions" {
 }
 
 # ============================================================================
-# DYNAMODB (FOR METRICS & STATE)
+# DYNAMODB (FIXED)
 # ============================================================================
 
 module "dynamodb" {
@@ -424,30 +424,18 @@ module "dynamodb" {
 
   name_prefix = local.name_prefix
 
-  # Tables
-  tables = {
-    metrics = {
-      table_name     = "${local.name_prefix}-model-metrics"
-      billing_mode   = "PAY_PER_REQUEST"
-      hash_key       = "model_version"
-      range_key      = "evaluation_timestamp"
-    }
+  # FIXED: The module requires "kms_key_arn", NOT "kms_key_id"
+  kms_key_arn = module.security.sagemaker_kms_key_arn
 
-    image_tracking = {
-      table_name     = "${local.name_prefix}-image-tracking"
-      billing_mode   = "PAY_PER_REQUEST"
-      hash_key       = "image_id"
-      range_key      = "ingestion_timestamp"
-    }
-  }
+  # FIXED: The module requires "enable_point_in_time_recovery", NOT "point_in_time_recovery"
+  enable_point_in_time_recovery = true
 
-  # Backup & retention
-  point_in_time_recovery = true
-  ttl_enabled            = true
+  # FIXED: The module requires "enable_ttl", NOT "ttl_enabled"
+  enable_ttl = true
 
-  # Encryption
-  kms_key_id = module.security.sagemaker_kms_key_id
-
+  # REMOVED: The "tables" argument is not supported. 
+  # The module automatically creates the required tables (image-metadata, training-metrics, etc.)
+  
   tags = local.common_tags
 }
 

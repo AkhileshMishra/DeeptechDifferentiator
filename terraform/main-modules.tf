@@ -10,10 +10,10 @@ terraform {
       source  = "hashicorp/aws"
       version = ">= 5.20.0"
     }
-    # ADDED: Cloud Control provider for HealthImaging
+    # REQUIRED: Cloud Control provider for HealthImaging
     awscc = {
       source  = "hashicorp/awscc"
-      version = ">= 1.60.0"
+      version = ">= 1.0.0"
     }
     archive = {
       source  = "hashicorp/archive"
@@ -33,7 +33,7 @@ provider "aws" {
   }
 }
 
-# ADDED: Configuration for the new provider
+# REQUIRED: Configuration for the awscc provider
 provider "awscc" {
   region = var.aws_region
 }
@@ -73,7 +73,7 @@ locals {
 }
 
 # ============================================================================
-# DATA SOURCES & ZIP ARCHIVES (FIXED)
+# DATA SOURCES & ZIP ARCHIVES
 # ============================================================================
 
 data "aws_caller_identity" "current" {}
@@ -82,7 +82,6 @@ data "aws_availability_zones" "available" {
   state = "available"
 }
 
-# --- ADDED: Missing Archive Files required by Lambda Module ---
 data "archive_file" "image_ingestion" {
   type        = "zip"
   source_dir  = "${path.module}/../python/src/lambda_handlers/image_ingestion"
@@ -158,9 +157,6 @@ module "storage" {
 
 module "healthimaging" {
   source = "./modules/healthimaging"
-  providers = {
-    awscc = awscc
-  }
 
   name_prefix            = local.name_prefix
   data_store_name        = local.healthimaging_config.data_store_name
@@ -213,10 +209,6 @@ module "ecr" {
   tags = local.common_tags
 }
 
-# ============================================================================
-# LAMBDA FUNCTIONS
-# ============================================================================
-
 module "lambda_functions" {
   source = "./modules/lambda"
 
@@ -239,9 +231,8 @@ module "lambda_functions" {
     module.dynamodb.pipeline_state_table_arn
   ]
 
-  healthimaging_datastore_id = module.healthimaging.datastore_id
+  healthimaging_datastore_id = module.healthimaging.data_store_id
   image_metadata_table       = module.dynamodb.image_metadata_table_name
-  # FIXED: Reference correct output name
   training_metrics_table     = module.dynamodb.training_metrics_table_name
   sagemaker_pipeline_arn     = module.sagemaker.pipeline_arn
   model_artifacts_bucket     = module.storage.model_artifacts_bucket_id
@@ -290,9 +281,6 @@ module "lambda_functions" {
   depends_on = [module.storage, module.sagemaker, module.networking, module.dynamodb]
 }
 
-# ============================================================================
-# DYNAMODB
-# ============================================================================
 module "dynamodb" {
   source = "./modules/dynamodb"
   name_prefix = local.name_prefix
@@ -303,10 +291,6 @@ module "dynamodb" {
   
   tags = local.common_tags
 }
-
-# ============================================================================
-# EVENTBRIDGE
-# ============================================================================
 
 module "eventbridge" {
   source = "./modules/eventbridge"
@@ -354,10 +338,6 @@ module "eventbridge" {
   depends_on = [module.sagemaker, module.lambda_functions]
 }
 
-# ============================================================================
-# MONITORING
-# ============================================================================
-
 module "monitoring" {
   source = "./modules/monitoring"
 
@@ -381,7 +361,6 @@ output "training_data_bucket" { value = module.storage.training_data_bucket_id }
 
 output "dynamodb_metrics_table" {
   description = "DynamoDB Metrics Table Name"
-  # FIXED: Updated to use the correct output from DynamoDB module
   value       = module.dynamodb.training_metrics_table_name
 }
 

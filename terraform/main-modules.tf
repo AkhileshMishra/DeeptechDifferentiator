@@ -293,7 +293,7 @@ module "dynamodb" {
 }
 
 # ============================================================================
-# EVENTBRIDGE (FIXED: Added role_arn = null)
+# EVENTBRIDGE (FIXED: Normalized Target Structures)
 # ============================================================================
 
 module "eventbridge" {
@@ -308,13 +308,14 @@ module "eventbridge" {
       pattern = {
         source      = ["imaging.mlops"]
         detail-type = ["ImageVerified"]
+        detail      = {} 
       }
       targets = [{
-        arn = module.lambda_functions.pipeline_trigger_function_arn
-        # FIXED: Added required role_arn argument
+        arn      = module.lambda_functions.pipeline_trigger_function_arn
         role_arn = null
-        input = jsonencode({
-          trigger = "workshop"
+        # This rule USES 'input', so others must have 'input = null'
+        input    = jsonencode({
+          trigger      = "workshop"
           datastore_id = module.healthimaging.data_store_id
         })
       }]
@@ -325,12 +326,13 @@ module "eventbridge" {
       pattern = {
         source      = ["aws.sagemaker"]
         detail-type = ["SageMaker Training Job State Change"]
-        detail = { status = ["Completed"] }
+        detail      = { status = ["Completed"] }
       }
       targets = [{ 
-        arn = module.lambda_functions.model_evaluation_function_arn 
-        # FIXED: Added required role_arn argument
+        arn      = module.lambda_functions.model_evaluation_function_arn 
         role_arn = null
+        # FIXED: Added input = null to match the structure of the first rule
+        input    = null 
       }]
     }
 
@@ -339,11 +341,13 @@ module "eventbridge" {
       pattern = {
         source      = ["imaging.mlops"]
         detail-type = ["ModelEvaluationPassed"]
+        detail      = {}
       }
       targets = [{ 
-        arn = module.lambda_functions.model_registry_function_arn 
-        # FIXED: Added required role_arn argument
+        arn      = module.lambda_functions.model_registry_function_arn 
         role_arn = null
+        # FIXED: Added input = null to match the structure of the first rule
+        input    = null
       }]
     }
   }

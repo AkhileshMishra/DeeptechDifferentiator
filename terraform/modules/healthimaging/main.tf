@@ -7,15 +7,12 @@
 # HEALTHIMAGING DATA STORE
 # ============================================================================
 
-resource "aws_medical_imaging_datastore" "main" {
-  datastore_name = var.data_store_name
-
-  kms_key_arn = var.kms_key_id
-
-  tags = merge(var.tags, {
-    Name = var.data_store_name
-  })
+resource "awscc_healthimaging_datastore" "main" {
+  datastore_name = var.datastore_name
+  kms_key_arn    = var.kms_key_arn
+  tags           = var.tags
 }
+
 
 # ============================================================================
 # IAM ROLE FOR HEALTHIMAGING ACCESS

@@ -63,10 +63,11 @@ resource "aws_s3_bucket_lifecycle_configuration" "training_data" {
     }
 
     expiration {
-      days = var.training_data_retention_days
+      days = max(var.training_data_retention_days, 91)
     }
   }
 }
+
 
 # ============================================================================
 # PREPROCESSED DATA BUCKET

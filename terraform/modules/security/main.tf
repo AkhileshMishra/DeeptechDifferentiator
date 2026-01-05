@@ -172,7 +172,7 @@ resource "aws_kms_alias" "logs" {
 # ============================================================================
 
 resource "aws_secretsmanager_secret" "secrets" {
-  for_each = var.enable_secrets_manager ? { for k, v in var.secrets : k => v if v != null && v != "" } : {}
+  for_each = var.enable_secrets_manager ? toset([for k, v in var.secrets : k if v != null && v != ""]) : toset([])
 
   name = "${var.name_prefix}-${each.key}"
 
@@ -180,11 +180,12 @@ resource "aws_secretsmanager_secret" "secrets" {
 }
 
 resource "aws_secretsmanager_secret_version" "secrets" {
-  for_each = var.enable_secrets_manager ? { for k, v in var.secrets : k => v if v != null && v != "" } : {}
+  for_each = var.enable_secrets_manager ? toset([for k, v in var.secrets : k if v != null && v != ""]) : toset([])
 
   secret_id     = aws_secretsmanager_secret.secrets[each.key].id
-  secret_string = each.value
+  secret_string = var.secrets[each.key]
 }
+
 
 
 

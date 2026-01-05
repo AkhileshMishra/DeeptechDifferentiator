@@ -440,79 +440,29 @@ module "dynamodb" {
 }
 
 # ============================================================================
-# MONITORING & OBSERVABILITY
+# MONITORING (FIXED)
 # ============================================================================
 
 module "monitoring" {
   source = "./modules/monitoring"
 
   name_prefix = local.name_prefix
+  
+  # FIXED: Now requires aws_region explicitly
+  aws_region  = var.aws_region
 
-  # CloudWatch configuration
-  log_retention_in_days = var.cloudwatch_retention_days
+  # FIXED: Now requires specific bucket IDs to build dashboards automatically
+  training_data_bucket   = module.storage.training_data_bucket_id
+  model_artifacts_bucket = module.storage.model_artifacts_bucket_id
 
-  # Dashboards
-  dashboards = {
-    healthimaging = {
-      title = "${local.name_prefix}-HealthImaging-Dashboard"
-      metrics = [
-        "AWS/HealthImaging/RetrievalLatency",
-        "AWS/HealthImaging/BytesTransferred",
-        "AWS/HealthImaging/APICallCount"
-      ]
-    }
-
-    sagemaker_pipeline = {
-      title = "${local.name_prefix}-SageMaker-Pipeline-Dashboard"
-      metrics = [
-        "AWS/SageMaker/ModelTrainingTime",
-        "AWS/SageMaker/TrainingJobCount",
-        "AWS/SageMaker/ModelEvaluationScore"
-      ]
-    }
-
-    mlops = {
-      title = "${local.name_prefix}-MLOps-Dashboard"
-      metrics = [
-        "custom:PipelineExecutionTime",
-        "custom:ModelAccuracy",
-        "custom:DataValidationRate"
-      ]
-    }
-  }
-
-  # Alarms
-  alarms = {
-    healthimaging_latency = {
-      metric_name         = "RetrievalLatency"
-      namespace           = "AWS/HealthImaging"
-      threshold           = 1000  # ms
-      comparison_operator = "GreaterThanThreshold"
-      alarm_actions       = [var.sns_alert_topic_arn]
-    }
-
-    sagemaker_training_failure = {
-      metric_name         = "TrainingJobFailures"
-      namespace           = "AWS/SageMaker"
-      threshold           = 1
-      comparison_operator = "GreaterThanOrEqualToThreshold"
-      alarm_actions       = [var.sns_alert_topic_arn]
-    }
-
-    model_accuracy_degradation = {
-      metric_name         = "ModelAccuracy"
-      namespace           = "${local.name_prefix}/ModelMetrics"
-      threshold           = 0.85  # 85% accuracy threshold
-      comparison_operator = "LessThanThreshold"
-      alarm_actions       = [var.sns_alert_topic_arn]
-    }
-  }
+  # REMOVED: "log_retention_in_days", "dashboards", "alarms" 
+  # (The module now handles these configurations internally)
 
   tags = local.common_tags
-
+  
   depends_on = [
-    module.healthimaging,
-    module.sagemaker,
+    module.healthimaging, 
+    module.sagemaker, 
     module.lambda_functions
   ]
 }

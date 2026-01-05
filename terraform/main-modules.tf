@@ -292,10 +292,6 @@ module "dynamodb" {
   tags = local.common_tags
 }
 
-# ============================================================================
-# EVENTBRIDGE (FIXED)
-# ============================================================================
-
 module "eventbridge" {
   source = "./modules/eventbridge"
 
@@ -308,12 +304,10 @@ module "eventbridge" {
       pattern = {
         source      = ["imaging.mlops"]
         detail-type = ["ImageVerified"]
-        # FIXED: Use null for empty details
-        detail      = null 
+        detail      = {}  # Changed from null
       }
       targets = [{
         arn      = module.lambda_functions.pipeline_trigger_function_arn
-        # FIXED: Use null (Lambda targets don't need a role)
         role_arn = null
         input    = jsonencode({
           trigger      = "workshop"
@@ -327,12 +321,11 @@ module "eventbridge" {
       pattern = {
         source      = ["aws.sagemaker"]
         detail-type = ["SageMaker Training Job State Change"]
-        detail      = { status = ["Completed"] }
+        detail      = { status = ["Completed"] }  # Keep as object
       }
       targets = [{ 
         arn      = module.lambda_functions.model_evaluation_function_arn 
         role_arn = null
-        # FIXED: Must be explicit null to match the first rule structure
         input    = null 
       }]
     }
@@ -342,7 +335,7 @@ module "eventbridge" {
       pattern = {
         source      = ["imaging.mlops"]
         detail-type = ["ModelEvaluationPassed"]
-        detail      = null
+        detail      = {}  # Changed from null
       }
       targets = [{ 
         arn      = module.lambda_functions.model_registry_function_arn 
@@ -355,6 +348,7 @@ module "eventbridge" {
   tags = local.common_tags
   depends_on = [module.sagemaker, module.lambda_functions]
 }
+
 
 module "monitoring" {
   source = "./modules/monitoring"

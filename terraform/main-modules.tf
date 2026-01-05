@@ -293,7 +293,7 @@ module "dynamodb" {
 }
 
 # ============================================================================
-# EVENTBRIDGE (FIXED: Normalized Target Structures)
+# EVENTBRIDGE (FIXED)
 # ============================================================================
 
 module "eventbridge" {
@@ -308,12 +308,13 @@ module "eventbridge" {
       pattern = {
         source      = ["imaging.mlops"]
         detail-type = ["ImageVerified"]
-        detail      = {} 
+        # FIXED: Use null for empty details
+        detail      = null 
       }
       targets = [{
         arn      = module.lambda_functions.pipeline_trigger_function_arn
+        # FIXED: Use null (Lambda targets don't need a role)
         role_arn = null
-        # This rule USES 'input', so others must have 'input = null'
         input    = jsonencode({
           trigger      = "workshop"
           datastore_id = module.healthimaging.data_store_id
@@ -331,7 +332,7 @@ module "eventbridge" {
       targets = [{ 
         arn      = module.lambda_functions.model_evaluation_function_arn 
         role_arn = null
-        # FIXED: Added input = null to match the structure of the first rule
+        # FIXED: Must be explicit null to match the first rule structure
         input    = null 
       }]
     }
@@ -341,12 +342,11 @@ module "eventbridge" {
       pattern = {
         source      = ["imaging.mlops"]
         detail-type = ["ModelEvaluationPassed"]
-        detail      = {}
+        detail      = null
       }
       targets = [{ 
         arn      = module.lambda_functions.model_registry_function_arn 
         role_arn = null
-        # FIXED: Added input = null to match the structure of the first rule
         input    = null
       }]
     }

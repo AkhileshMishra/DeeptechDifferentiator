@@ -4,7 +4,6 @@ on:
   push:
     branches: [ main ]
 
-# Permissions required for OIDC (Role Assumption)
 permissions:
   id-token: write
   contents: read
@@ -21,17 +20,21 @@ jobs:
       AWS_REGION: us-east-1
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
-      TF_VAR_env: "dev"
-      TF_VAR_domain_name: "aws-workshops.com"
-      IAM_ROLE_ARN: arn:aws:iam::637423443220:role/GitHubActionRole
+      
+      # This variable determines which file to load (dev.tfvars or prod.tfvars)
+      TF_ENV: "dev" 
+      
+      # We still need these for the backend init
       TF_STATE_KEY: "healthtech/dev/terraform.tfstate"
+      # TF_STATE_BUCKET (Provided by Secrets)
+      # TF_LOCK_TABLE   (Provided by Secrets)
 
     steps:
       - uses: actions/checkout@v3
 
       - uses: aws-actions/configure-aws-credentials@v2
         with:
-          role-to-assume: ${{ env.IAM_ROLE_ARN }}
+          role-to-assume: arn:aws:iam::637423443220:role/GitHubActionRole
           aws-region: us-east-1
 
       - uses: hashicorp/setup-terraform@v2
@@ -44,10 +47,9 @@ jobs:
             -backend-config="region=us-east-1" \
             -backend-config="dynamodb_table=${{ secrets.TF_LOCK_TABLE }}" \
             -backend-config="encrypt=true"
-        # FIXED: Changed from ./infra to ./terraform
         working-directory: ./terraform
 
       - name: Terraform Apply
-        run: terraform apply -auto-approve
-        # FIXED: Changed from ./infra to ./terraform
+        # UPDATED: Added -var-file flag to use the respective environment file
+        run: terraform apply -auto-approve -var-file="environments/${{ env.TF_ENV }}.tfvars"
         working-directory: ./terraform

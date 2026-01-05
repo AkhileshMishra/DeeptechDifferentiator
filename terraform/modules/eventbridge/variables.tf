@@ -22,7 +22,7 @@ variable "rules" {
       source      = list(string)
       detail-type = list(string)
       # CHANGE HERE: Use 'any' instead of 'map(any)' to handle nulls and objects better
-      detail      = optional(any)
+      detail      = any
     })
     targets = list(object({
       arn      = string

@@ -48,6 +48,9 @@ resource "aws_s3_bucket_lifecycle_configuration" "training_data" {
   rule {
     id     = "training-data-lifecycle"
     status = "Enabled"
+    filter {
+      prefix = ""
+    }
 
     transition {
       days          = 30
@@ -188,7 +191,9 @@ resource "aws_s3_bucket_lifecycle_configuration" "logs" {
   rule {
     id     = "logs-lifecycle"
     status = "Enabled"
-
+    filter {
+      prefix = ""
+    }
     expiration {
       days = var.logs_retention_days
     }

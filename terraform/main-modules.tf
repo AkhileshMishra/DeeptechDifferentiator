@@ -6,15 +6,14 @@
 terraform {
   required_version = ">= 1.0"
   required_providers {
-    # 1. FIXED: Bump AWS provider to >= 5.24.0 to support HealthImaging
     aws = {
       source  = "hashicorp/aws"
-      version = ">= 5.24.0"
+      version = ">= 5.20.0"
     }
-    # 2. ADDED: AWS Cloud Control provider (Required for HealthLake)
+    # ADDED: Cloud Control provider for HealthImaging
     awscc = {
       source  = "hashicorp/awscc"
-      version = "~> 1.0"
+      version = ">= 1.60.0"
     }
     archive = {
       source  = "hashicorp/archive"
@@ -23,7 +22,6 @@ terraform {
   }
 }
 
-# Provider 1: Standard AWS (For Storage, SageMaker, Lambda, HealthImaging)
 provider "aws" {
   region = var.aws_region
   default_tags {
@@ -35,13 +33,10 @@ provider "aws" {
   }
 }
 
-# Provider 2: AWS Cloud Control (For HealthLake)
+# ADDED: Configuration for the new provider
 provider "awscc" {
   region = var.aws_region
-  # tags logic is handled differently in awscc, usually passed to resources directly
 }
-
-# ... [Rest of the file remains the same: locals, modules, etc.] ...
 
 # ============================================================================
 # LOCAL VARIABLES

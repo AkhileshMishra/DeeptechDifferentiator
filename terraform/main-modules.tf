@@ -8,7 +8,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = ">= 5.20.0"
+      version = ">= 5.24.0"
     }
     # REQUIRED: Cloud Control provider for HealthImaging
     awscc = {
@@ -292,6 +292,10 @@ module "dynamodb" {
   tags = local.common_tags
 }
 
+# ============================================================================
+# EVENTBRIDGE (FIXED: Added role_arn = null)
+# ============================================================================
+
 module "eventbridge" {
   source = "./modules/eventbridge"
 
@@ -307,6 +311,8 @@ module "eventbridge" {
       }
       targets = [{
         arn = module.lambda_functions.pipeline_trigger_function_arn
+        # FIXED: Added required role_arn argument
+        role_arn = null
         input = jsonencode({
           trigger = "workshop"
           datastore_id = module.healthimaging.data_store_id
@@ -321,7 +327,11 @@ module "eventbridge" {
         detail-type = ["SageMaker Training Job State Change"]
         detail = { status = ["Completed"] }
       }
-      targets = [{ arn = module.lambda_functions.model_evaluation_function_arn }]
+      targets = [{ 
+        arn = module.lambda_functions.model_evaluation_function_arn 
+        # FIXED: Added required role_arn argument
+        role_arn = null
+      }]
     }
 
     model_evaluation_passed = {
@@ -330,7 +340,11 @@ module "eventbridge" {
         source      = ["imaging.mlops"]
         detail-type = ["ModelEvaluationPassed"]
       }
-      targets = [{ arn = module.lambda_functions.model_registry_function_arn }]
+      targets = [{ 
+        arn = module.lambda_functions.model_registry_function_arn 
+        # FIXED: Added required role_arn argument
+        role_arn = null
+      }]
     }
   }
 

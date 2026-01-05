@@ -21,8 +21,8 @@ variable "rules" {
     pattern = object({
       source      = list(string)
       detail-type = list(string)
-      # Allow detail to be null or a map
-      detail      = optional(map(any))
+      # CHANGE HERE: Use 'any' instead of 'map(any)' to handle nulls and objects better
+      detail      = optional(any)
     })
     targets = list(object({
       arn      = string

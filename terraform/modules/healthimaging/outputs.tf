@@ -3,14 +3,16 @@
 # Healthcare Imaging MLOps Platform
 # ============================================================================
 
-output "datastore_id" {
+output "data_store_id" {
   description = "ID of the HealthImaging data store"
-  value       = aws_medical_imaging_datastore.main.id
+  # FIXED: awscc resource uses 'datastore_id'
+  value       = awscc_healthimaging_datastore.main.datastore_id
 }
 
-output "datastore_arn" {
+output "data_store_arn" {
   description = "ARN of the HealthImaging data store"
-  value       = aws_medical_imaging_datastore.main.arn
+  # FIXED: awscc resource uses 'datastore_arn'
+  value       = awscc_healthimaging_datastore.main.datastore_arn
 }
 
 output "access_role_arn" {

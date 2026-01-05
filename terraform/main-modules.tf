@@ -8,8 +8,8 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      # FIXED: Enforce version >= 5.20 to ensure HealthImaging support
-      version = ">= 5.20.0" 
+      # FIXED: Force version to be at least 5.24.0 to support HealthImaging
+      version = ">= 5.24.0"
     }
     archive = {
       source  = "hashicorp/archive"

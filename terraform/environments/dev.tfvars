@@ -1,8 +1,9 @@
 aws_region     = "us-east-1"
-aws_account_id = "YOUR_DEV_ACCOUNT_ID"
+# UPDATE THIS LINE with your real account ID
+aws_account_id = "637423443220" 
 project_name   = "healthcare-imaging"
 environment    = "dev"
-owner_email    = "dev-team@example.com"
+owner_email    = "admin@healthtech.com"
 cost_center    = "dev-engineering"
 
 vpc_cidr           = "10.10.0.0/16"

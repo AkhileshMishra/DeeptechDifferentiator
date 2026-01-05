@@ -163,6 +163,9 @@ module "storage" {
 
 module "healthimaging" {
   source = "./modules/healthimaging"
+  providers = {
+    awscc = awscc
+  }
 
   name_prefix            = local.name_prefix
   data_store_name        = local.healthimaging_config.data_store_name

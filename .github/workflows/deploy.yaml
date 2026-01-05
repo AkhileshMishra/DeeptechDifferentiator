@@ -4,7 +4,7 @@ on:
   push:
     branches: [ main ]
 
-# REQUIRED: Permissions for OIDC authentication
+# Permissions required for OIDC (Role Assumption)
 permissions:
   id-token: write
   contents: read
@@ -23,18 +23,12 @@ jobs:
       TF_INPUT: "false"
       TF_VAR_env: "dev"
       TF_VAR_domain_name: "aws-workshops.com"
-      # Role to assume for deployment
       IAM_ROLE_ARN: arn:aws:iam::637423443220:role/GitHubActionRole
-
-      # Note: You still need these secrets in GitHub for backend config
-      # TF_STATE_BUCKET  
-      # TF_LOCK_TABLE    
       TF_STATE_KEY: "healthtech/dev/terraform.tfstate"
 
     steps:
       - uses: actions/checkout@v3
 
-      # UPDATED: Use OIDC with the specific Role ARN
       - uses: aws-actions/configure-aws-credentials@v2
         with:
           role-to-assume: ${{ env.IAM_ROLE_ARN }}
@@ -50,8 +44,10 @@ jobs:
             -backend-config="region=us-east-1" \
             -backend-config="dynamodb_table=${{ secrets.TF_LOCK_TABLE }}" \
             -backend-config="encrypt=true"
-        working-directory: ./infra
+        # FIXED: Changed from ./infra to ./terraform
+        working-directory: ./terraform
 
       - name: Terraform Apply
         run: terraform apply -auto-approve
-        working-directory: ./infra
+        # FIXED: Changed from ./infra to ./terraform
+        working-directory: ./terraform

@@ -109,13 +109,14 @@ variable "sagemaker_autoscaling_min_capacity" {
 }
 
 variable "sagemaker_autoscaling_max_capacity" {
-  description = "Maximum capacity for SageMaker auto-scaling"
+  description = "Maximum number of instances for auto-scaling"
   type        = number
   default     = 2
-  
+
   validation {
-    condition     = var.sagemaker_autoscaling_max_capacity >= var.sagemaker_autoscaling_min_capacity
-    error_message = "Maximum capacity must be greater than or equal to minimum capacity"
+    # Simple check only on itself
+    condition     = var.sagemaker_autoscaling_max_capacity >= 1
+    error_message = "Max capacity must be at least 1"
   }
 }
 

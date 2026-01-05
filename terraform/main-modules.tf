@@ -333,7 +333,7 @@ module "eventbridge" {
 }
 
 # ============================================================================
-# LAMBDA FUNCTIONS
+# LAMBDA FUNCTIONS (CORRECTED)
 # ============================================================================
 
 module "lambda_functions" {
@@ -341,83 +341,78 @@ module "lambda_functions" {
 
   name_prefix = local.name_prefix
 
-  # Function definitions
+  # --- 1. Network & Security (REQUIRED) ---
+  # These are now top-level arguments, not inside vpc_config
+  subnet_ids         = module.networking.private_subnet_ids
+  security_group_ids = [module.networking.lambda_security_group_id]
+  kms_key_arn        = module.security.sagemaker_kms_key_arn
+
+  # --- 2. Resource Permissions (REQUIRED) ---
+  # The module uses these ARNs to generate least-privilege IAM policies
+  s3_bucket_arns = [
+    module.storage.training_data_bucket_arn,
+    module.storage.preprocessed_data_bucket_arn,
+    module.storage.model_artifacts_bucket_arn,
+    module.storage.logs_bucket_arn
+  ]
+  
+  dynamodb_table_arns = [
+    module.dynamodb.image_metadata_table_arn,
+    module.dynamodb.training_metrics_table_arn,
+    module.dynamodb.pipeline_state_table_arn
+  ]
+
+  # --- 3. Environment Configuration (REQUIRED) ---
+  # These values are injected into the Lambda environment variables
+  healthimaging_datastore_id = module.healthimaging.datastore_id
+  image_metadata_table       = module.dynamodb.image_metadata_table_name
+  training_metrics_table     = module.dynamodb.training_metrics_table_name
+  sagemaker_pipeline_arn     = module.sagemaker.pipeline_arn
+  model_artifacts_bucket     = module.storage.model_artifacts_bucket_id
+  model_package_group        = module.sagemaker.model_registry_name
+
+  # --- 4. Function Definitions ---
   functions = {
     image_ingestion = {
       description = "Process uploaded DICOM images"
       handler     = "index.handler"
+      runtime     = "python3.11"
       timeout     = 300
       memory_size = 512
-      environment = {
-        HEALTHIMAGING_DATASTORE_ID = module.healthimaging.data_store_id
-        TRAINING_BUCKET            = module.storage.training_data_bucket_id
-        SAGEMAKER_PIPELINE_ARN     = module.sagemaker.pipeline_arn
-      }
+      zip_file    = data.archive_file.image_ingestion.output_path
     }
 
     pipeline_trigger = {
       description = "Trigger SageMaker pipeline when image verified"
       handler     = "index.handler"
+      runtime     = "python3.11"
       timeout     = 60
       memory_size = 256
-      environment = {
-        SAGEMAKER_PIPELINE_ARN = module.sagemaker.pipeline_arn
-      }
+      zip_file    = data.archive_file.pipeline_trigger.output_path
     }
 
     model_evaluation = {
       description = "Evaluate trained model against test dataset"
       handler     = "index.handler"
+      runtime     = "python3.11"
       timeout     = 900
       memory_size = 1024
-      environment = {
-        MODEL_BUCKET        = module.storage.model_artifacts_bucket_id
-        METRICS_TABLE       = module.dynamodb.metrics_table_name
-        CLOUDWATCH_NAMESPACE = "${local.name_prefix}/ModelMetrics"
-      }
+      zip_file    = data.archive_file.model_evaluation.output_path
     }
 
     model_registry = {
       description = "Register approved models in SageMaker Model Registry"
       handler     = "index.handler"
+      runtime     = "python3.11"
       timeout     = 300
       memory_size = 512
-      environment = {
-        SAGEMAKER_ROLE_ARN = module.sagemaker.sagemaker_execution_role_arn
-        MODEL_PACKAGE_GROUP = module.sagemaker.model_package_group_name
-      }
+      zip_file    = data.archive_file.model_registry.output_path
     }
   }
-
-  # VPC configuration
-  vpc_config = {
-    subnet_ids         = module.networking.private_subnet_ids
-    security_group_ids = [module.networking.lambda_security_group_id]
-  }
-
-  # IAM permissions
-  iam_policy_statements = [
-    {
-      actions   = ["healthimaging:*"]
-      resources = ["*"]
-    },
-    {
-      actions   = ["s3:*"]
-      resources = [module.storage.training_data_bucket_arn, "${module.storage.training_data_bucket_arn}/*"]
-    },
-    {
-      actions   = ["sagemaker:*"]
-      resources = ["*"]
-    }
-  ]
 
   tags = local.common_tags
 
-  depends_on = [
-    module.storage,
-    module.sagemaker,
-    module.networking
-  ]
+  depends_on = [module.storage, module.sagemaker, module.networking, module.dynamodb]
 }
 
 # ============================================================================

@@ -4,6 +4,11 @@ on:
   push:
     branches: [ main ]
 
+# REQUIRED: Permissions for OIDC authentication
+permissions:
+  id-token: write
+  contents: read
+
 concurrency:
   group: terraform-${{ github.ref }}
   cancel-in-progress: false
@@ -11,28 +16,28 @@ concurrency:
 jobs:
   terraform:
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
-
+    
     env:
       AWS_REGION: us-east-1
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
       TF_VAR_env: "dev"
       TF_VAR_domain_name: "aws-workshops.com"
+      # Role to assume for deployment
+      IAM_ROLE_ARN: arn:aws:iam::637423443220:role/GitHubActionRole
 
-      # Set these as GitHub repo secrets:
-      # TF_STATE_BUCKET  (e.g., healthtech-tfstate-637423443220)
-      # TF_LOCK_TABLE    (e.g., healthtech-terraform-locks)
+      # Note: You still need these secrets in GitHub for backend config
+      # TF_STATE_BUCKET  
+      # TF_LOCK_TABLE    
       TF_STATE_KEY: "healthtech/dev/terraform.tfstate"
 
     steps:
       - uses: actions/checkout@v3
 
+      # UPDATED: Use OIDC with the specific Role ARN
       - uses: aws-actions/configure-aws-credentials@v2
         with:
-          role-to-assume: arn:aws:iam::637423443220:role/GitHubActionRole
+          role-to-assume: ${{ env.IAM_ROLE_ARN }}
           aws-region: us-east-1
 
       - uses: hashicorp/setup-terraform@v2

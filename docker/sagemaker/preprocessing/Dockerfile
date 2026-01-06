@@ -22,11 +22,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /opt/ml/code
 
 # Copy requirements and install dependencies
-COPY requirements.txt .
+COPY docker/sagemaker/preprocessing/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy source code
-COPY preprocessing.py .
+# Copy source code from correct location
+COPY python/src/pipeline/preprocessing.py .
 
 # Set entrypoint
 ENTRYPOINT ["python", "preprocessing.py"]

@@ -160,7 +160,7 @@ module "healthimaging" {
 
   name_prefix            = local.name_prefix
   data_store_name        = local.healthimaging_config.data_store_name
-  kms_key_id             = module.security.sagemaker_kms_key_id
+  kms_key_id             = module.security.sagemaker_kms_key_arn
   
   allowed_principals = [
     module.sagemaker.sagemaker_execution_role_arn,
@@ -185,7 +185,7 @@ module "sagemaker" {
   sagemaker_role_name      = "${local.name_prefix}-sagemaker-role"
   subnet_ids               = module.networking.private_subnet_ids
   security_group_ids       = [module.networking.sagemaker_security_group_id]
-  kms_key_id               = module.security.sagemaker_kms_key_id
+  kms_key_id               = module.security.sagemaker_kms_key_arn
   artifact_bucket          = module.storage.model_artifacts_bucket_id
   training_data_bucket     = module.storage.training_data_bucket_id
   enable_model_registry    = true

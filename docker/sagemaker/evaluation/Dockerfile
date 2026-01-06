@@ -11,18 +11,17 @@ ENV PYTHONDONTWRITEBYTECODE=1
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
-    libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Create working directory
 WORKDIR /opt/ml/code
 
 # Copy requirements and install dependencies
-COPY requirements.txt .
+COPY docker/sagemaker/evaluation/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy source code
-COPY evaluate.py .
+COPY python/src/pipeline/evaluation.py .
 
 # Set entrypoint
-ENTRYPOINT ["python", "evaluate.py"]
+ENTRYPOINT ["python", "evaluation.py"]

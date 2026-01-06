@@ -21,26 +21,38 @@ env:
 
 jobs:
   # Code Quality Checks (No AWS auth needed)
+  # Code Quality Checks (No AWS auth needed)
   lint:
     name: Code Quality
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+      
+      - name: Free Disk Space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo docker image prune --all --force
+          df -h
+      
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - name: Install dependencies
-        run: |
-          pip install black flake8 isort mypy
-          pip install -r python/requirements.txt
+          cache: 'pip'
+      
+      - name: Install dev dependencies
+        run: pip install --no-cache-dir -r python/requirements-dev.txt
+      
       - name: Run Black
         run: black --check python/ || true
+      
       - name: Run Flake8
         run: flake8 python/ --max-line-length=120 || true
-
   # Unit Tests (No AWS auth needed)
+    # Unit Tests (No AWS auth needed)
   test:
     name: Unit Tests
     runs-on: ubuntu-latest
@@ -48,18 +60,28 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+      
+      - name: Free Disk Space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          df -h
+      
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+      
       - name: Install dependencies
-        run: |
-          pip install -r python/requirements.txt
-          pip install pytest pytest-cov pytest-asyncio moto
+        run: pip install --no-cache-dir -r python/requirements-dev.txt
+      
       - name: Run tests
         run: |
           cd python
           pytest tests/ -v --cov=src --cov-report=xml --cov-report=html || true
+
 
   # Terraform Validation (No AWS auth needed)
   terraform-validate:

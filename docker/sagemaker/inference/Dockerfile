@@ -1,8 +1,8 @@
 # Healthcare Imaging MLOps Platform - Inference Container
-FROM tensorflow/tensorflow:2.13.0
+FROM python:3.11-slim
 
 LABEL maintainer="Cloud Assembly"
-LABEL description="Model inference container for SageMaker"
+LABEL description="Inference serving container for SageMaker"
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
@@ -11,24 +11,17 @@ ENV PYTHONDONTWRITEBYTECODE=1
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
-    nginx \
     && rm -rf /var/lib/apt/lists/*
 
 # Create working directory
 WORKDIR /opt/ml/code
 
 # Copy requirements and install dependencies
-COPY requirements.txt .
+COPY docker/sagemaker/inference/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy source code
-COPY predictor.py .
-COPY serve .
+# Copy API source code
+COPY python/src/api/ ./api/
 
-# Make serve script executable
-RUN chmod +x serve
-
-# Set entrypoint for SageMaker
-ENV SAGEMAKER_PROGRAM predictor.py
-
-ENTRYPOINT ["python", "predictor.py"]
+# Set entrypoint
+ENTRYPOINT ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8080"]

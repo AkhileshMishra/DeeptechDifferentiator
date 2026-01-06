@@ -24,11 +24,15 @@ resource "aws_cloudwatch_event_rule" "rules" {
   event_bus_name = aws_cloudwatch_event_bus.main.name
   
   # FIXED: Explicitly construct JSON to handle optional 'detail' and 'detail-type'
-  event_pattern = jsonencode({
+  event_pattern = jsonencode(merge(
+  {
     source      = each.value.pattern.source
-    detail-type = each.value.pattern["detail-type"] # Use brackets for keys with dashes
-    detail      = each.value.pattern.detail
-  })
+    detail-type = each.value.pattern["detail-type"]
+  },
+  # Only include 'detail' if it is not null and not empty
+  try(length(each.value.pattern.detail) > 0, false) ? { detail = each.value.pattern.detail } : {}
+  ))
+
 
   tags = var.tags
 }

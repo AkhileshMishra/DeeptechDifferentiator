@@ -304,6 +304,7 @@ module "eventbridge" {
       pattern = {
         source      = ["imaging.mlops"]
         detail-type = ["ImageVerified"]
+        detail      = null 
       }
       targets = [{
         arn      = module.lambda_functions.pipeline_trigger_function_arn
@@ -334,6 +335,7 @@ module "eventbridge" {
       pattern = {
         source      = ["imaging.mlops"]
         detail-type = ["ModelEvaluationPassed"]
+        detail      = null 
       }
       targets = [{ 
         arn      = module.lambda_functions.model_registry_function_arn 

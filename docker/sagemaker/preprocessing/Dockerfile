@@ -25,7 +25,7 @@ WORKDIR /opt/ml/code
 COPY docker/sagemaker/preprocessing/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy source code from correct location
+# Copy source code
 COPY python/src/pipeline/preprocessing.py .
 
 # Set entrypoint

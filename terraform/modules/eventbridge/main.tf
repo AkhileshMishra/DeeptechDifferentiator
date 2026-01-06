@@ -25,12 +25,12 @@ resource "aws_cloudwatch_event_rule" "rules" {
   
   # FIXED: Explicitly construct JSON to handle optional 'detail' and 'detail-type'
   event_pattern = jsonencode(merge(
-  {
-    source      = each.value.pattern.source
-    detail-type = each.value.pattern["detail-type"]
-  },
-  # Only include 'detail' if it is not null and not empty
-  try(length(each.value.pattern.detail) > 0, false) ? { detail = each.value.pattern.detail } : {}
+    {
+      source      = each.value.pattern.source
+      detail-type = each.value.pattern["detail-type"]
+    },
+    # Only include 'detail' if it is not null and has items
+    each.value.pattern.detail != null && length(each.value.pattern.detail) > 0 ? { detail = each.value.pattern.detail } : {}
   ))
 
 

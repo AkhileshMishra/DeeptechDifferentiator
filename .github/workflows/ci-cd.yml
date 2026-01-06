@@ -144,8 +144,8 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          context: .  # Changed from docker/sagemaker/${{ matrix.image }}
-          file: docker/sagemaker/${{ matrix.image }}/Dockerfile  # Added explicit file path
+          context: .
+          file: docker/sagemaker/${{ matrix.image }}/Dockerfile
           push: true
           tags: |
             ${{ steps.login-ecr.outputs.registry }}/healthcare-imaging-mlops-${{ matrix.image }}:${{ github.sha }}

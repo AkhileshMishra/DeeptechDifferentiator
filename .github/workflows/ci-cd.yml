@@ -21,7 +21,7 @@ env:
 
 jobs:
   # Code Quality Checks (No AWS auth needed)
-  # Code Quality Checks (No AWS auth needed)
+ 
   lint:
     name: Code Quality
     runs-on: ubuntu-latest
@@ -51,7 +51,6 @@ jobs:
       - name: Run Flake8
         run: flake8 python/ --max-line-length=120 || true
   # Unit Tests (No AWS auth needed)
-    # Unit Tests (No AWS auth needed)
   test:
     name: Unit Tests
     runs-on: ubuntu-latest
@@ -114,12 +113,47 @@ jobs:
           scan-ref: '.'
           severity: 'CRITICAL,HIGH'
           exit-code: '0'
+    # Create ECR Repositories (NEEDS AWS AUTH)
+  create-ecr-repos:
+    name: Create ECR Repositories
+    runs-on: ubuntu-latest
+    needs: [test, terraform-validate]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.IAM_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Create ECR repositories if they don't exist
+        run: |
+          REPOS=("preprocessing" "training" "evaluation" "inference")
+          for repo in "${REPOS[@]}"; do
+            REPO_NAME="healthcare-imaging-mlops-${repo}"
+            echo "Checking if repository ${REPO_NAME} exists..."
+            if ! aws ecr describe-repositories --repository-names ${REPO_NAME} --region ${{ env.AWS_REGION }} 2>/dev/null; then
+              echo "Creating repository ${REPO_NAME}..."
+              aws ecr create-repository \
+                --repository-name ${REPO_NAME} \
+                --region ${{ env.AWS_REGION }} \
+                --image-scanning-configuration scanOnPush=true \
+                --encryption-configuration encryptionType=AES256 \
+                --tags Key=Project,Value=healthcare-imaging-mlops Key=ManagedBy,Value=github-actions
+              echo "Repository ${REPO_NAME} created successfully"
+            else
+              echo "Repository ${REPO_NAME} already exists"
+            fi
+          done
 
   # Build Docker Images (NEEDS AWS AUTH)
   build-images:
     name: Build Docker Images
     runs-on: ubuntu-latest
-    needs: [test, terraform-validate]
+    needs: [test, terraform-validate, create-ecr-repos]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     strategy:
       matrix:

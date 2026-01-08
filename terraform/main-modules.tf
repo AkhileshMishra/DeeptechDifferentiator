@@ -151,8 +151,10 @@ module "storage" {
   allow_healthimaging_access   = true
   allow_sagemaker_access       = true
   vpc_id                       = module.networking.vpc_id
+  image_ingestion_lambda_arn   = module.lambda_functions.image_ingestion_function_arn
 
   tags = local.common_tags
+  depends_on = [module.lambda_functions]
 }
 
 module "healthimaging" {

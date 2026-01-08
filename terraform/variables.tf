@@ -13,12 +13,6 @@ variable "vpc_cidr" {
     error_message = "VPC CIDR must be a valid CIDR block"
   }
 }
-variable "image_ingestion_lambda_arn" {
-  description = "ARN of the image ingestion Lambda function for S3 trigger"
-  type        = string
-  default     = ""
-}
-
 variable "enable_nat_gateway" {
   description = "Enable NAT Gateway for private subnets"
   type        = bool

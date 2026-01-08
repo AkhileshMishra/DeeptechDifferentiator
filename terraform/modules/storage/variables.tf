@@ -63,9 +63,3 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
-
-variable "image_ingestion_lambda_arn" {
-  description = "ARN of the image ingestion Lambda function for S3 trigger"
-  type        = string
-  default     = ""
-}

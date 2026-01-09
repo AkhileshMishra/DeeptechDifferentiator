@@ -240,10 +240,10 @@ resource "aws_lambda_function" "get_presigned_url" {
   runtime          = "python3.11"
   timeout          = 30
   
-  # Connects to the bucket created in main-modules.tf
   environment {
     variables = {
-      BUCKET_NAME = module.storage.training_data_bucket_id
+      BUCKET_NAME  = module.storage.training_data_bucket_id
+      DATASTORE_ID = module.healthimaging.data_store_id
     }
   }
 }

@@ -75,6 +75,18 @@ variable "model_package_group" {
   type        = string
 }
 
+variable "training_data_bucket" {
+  description = "S3 bucket for training data (DICOM input)"
+  type        = string
+  default     = ""
+}
+
+variable "healthimaging_import_role_arn" {
+  description = "IAM role ARN for HealthImaging import jobs"
+  type        = string
+  default     = ""
+}
+
 variable "log_retention_days" {
   description = "CloudWatch log retention days"
   type        = number

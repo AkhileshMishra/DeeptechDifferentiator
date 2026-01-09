@@ -231,12 +231,14 @@ module "lambda_functions" {
     module.dynamodb.pipeline_state_table_arn
   ]
 
-  healthimaging_datastore_id = module.healthimaging.data_store_id
-  image_metadata_table       = module.dynamodb.image_metadata_table_name
-  training_metrics_table     = module.dynamodb.training_metrics_table_name
-  sagemaker_pipeline_arn     = module.sagemaker.pipeline_arn
-  model_artifacts_bucket     = module.storage.model_artifacts_bucket_id
-  model_package_group        = module.sagemaker.model_registry_name
+  healthimaging_datastore_id    = module.healthimaging.data_store_id
+  healthimaging_import_role_arn = module.healthimaging.access_role_arn
+  training_data_bucket          = module.storage.training_data_bucket_id
+  image_metadata_table          = module.dynamodb.image_metadata_table_name
+  training_metrics_table        = module.dynamodb.training_metrics_table_name
+  sagemaker_pipeline_arn        = module.sagemaker.pipeline_arn
+  model_artifacts_bucket        = module.storage.model_artifacts_bucket_id
+  model_package_group           = module.sagemaker.model_registry_name
 
   functions = {
     image_ingestion = {

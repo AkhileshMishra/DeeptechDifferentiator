@@ -57,10 +57,25 @@ resource "aws_iam_role_policy" "healthimaging_access" {
           "medical-imaging:GetImageSet",
           "medical-imaging:GetImageFrame",
           "medical-imaging:GetImageSetMetadata",
-          "medical-imaging:SearchImageSets"
+          "medical-imaging:SearchImageSets",
+          "medical-imaging:StartDICOMImportJob",
+          "medical-imaging:GetDICOMImportJob",
+          "medical-imaging:ListDICOMImportJobs"
         ]
-        # FIXED: References the ARN from the awscc provider resource
-        Resource = awscc_healthimaging_datastore.main.datastore_arn
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:ListBucket",
+          "s3:GetBucketLocation"
+        ]
+        Resource = [
+          "arn:aws:s3:::${var.name_prefix}-*",
+          "arn:aws:s3:::${var.name_prefix}-*/*"
+        ]
       }
     ]
   })

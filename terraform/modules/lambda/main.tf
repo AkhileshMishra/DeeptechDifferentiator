@@ -108,7 +108,13 @@ resource "aws_lambda_function" "image_ingestion" {
   environment {
     variables = {
       HEALTHIMAGING_DATASTORE_ID = var.healthimaging_datastore_id
+      DATASTORE_ID               = var.healthimaging_datastore_id
+      INPUT_BUCKET               = var.training_data_bucket
+      OUTPUT_BUCKET              = var.training_data_bucket
+      AHI_IMPORT_ROLE_ARN        = var.healthimaging_import_role_arn
+      DATA_ACCESS_ROLE_ARN       = var.healthimaging_import_role_arn
       DYNAMODB_TABLE             = var.image_metadata_table
+      IMAGE_TRACKING_TABLE       = var.image_metadata_table
       LOG_LEVEL                  = "INFO"
     }
   }

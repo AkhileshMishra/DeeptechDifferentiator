@@ -38,6 +38,8 @@ jobs:
           aws-region: us-east-1
 
       - uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_wrapper: false
 
       - name: Terraform Init (remote state)
         run: |
@@ -50,6 +52,28 @@ jobs:
         working-directory: ./terraform
 
       - name: Terraform Apply
-        # UPDATED: Added -var-file flag to use the respective environment file
         run: terraform apply -auto-approve -var-file="environments/${{ env.TF_ENV }}.tfvars"
         working-directory: ./terraform
+
+      - name: Get Terraform Outputs
+        id: tf-outputs
+        run: |
+          echo "frontend_url=$(terraform output -raw frontend_url)" >> $GITHUB_OUTPUT
+          echo "cloudfront_id=$(terraform output -raw cloudfront_distribution_id)" >> $GITHUB_OUTPUT
+          echo "api_endpoint=$(terraform output -raw api_gateway_endpoint)" >> $GITHUB_OUTPUT
+        working-directory: ./terraform
+
+      - name: Invalidate CloudFront Cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ steps.tf-outputs.outputs.cloudfront_id }} \
+            --paths "/*"
+
+      - name: Print Frontend URL
+        run: |
+          echo "=========================================="
+          echo "🚀 Deployment Complete!"
+          echo "=========================================="
+          echo "Frontend URL: ${{ steps.tf-outputs.outputs.frontend_url }}"
+          echo "API Endpoint: ${{ steps.tf-outputs.outputs.api_endpoint }}"
+          echo "=========================================="

@@ -85,6 +85,11 @@ resource "aws_iam_role_policy" "lambda_custom" {
           "kms:GenerateDataKey"
         ]
         Resource = var.kms_key_arn
+      },
+      {
+        Effect   = "Allow"
+        Action   = "iam:PassRole"
+        Resource = var.healthimaging_import_role_arn
       }
     ]
   })

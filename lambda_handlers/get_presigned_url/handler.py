@@ -43,8 +43,35 @@ def lambda_handler(event, context):
         
         s3_client = boto3.client('s3')
         bucket_name = os.environ.get('S3_BUCKET_NAME')
-        # Assuming the file name matches the ImageSetId or is passed in
-        file_key = f"input/{image_set_id}.dcm" 
+        
+        # Try multiple file extensions (case-insensitive handling)
+        possible_keys = [
+            f"input/{image_set_id}.dcm",
+            f"input/{image_set_id}.DCM",
+            f"input/{image_set_id}.Dcm",
+            f"upload/{image_set_id}.dcm",
+            f"upload/{image_set_id}.DCM",
+        ]
+        
+        # Find the file that exists
+        file_key = None
+        for key in possible_keys:
+            try:
+                s3_client.head_object(Bucket=bucket_name, Key=key)
+                file_key = key
+                break
+            except ClientError:
+                continue
+        
+        if not file_key:
+            return {
+                'statusCode': 404,
+                'headers': {
+                    'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Methods': 'GET,OPTIONS'
+                },
+                'body': json.dumps({'error': f'File not found for imageSetId: {image_set_id}'})
+            }
         
         url = s3_client.generate_presigned_url(
             'get_object',

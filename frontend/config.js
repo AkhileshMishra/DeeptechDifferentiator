@@ -4,11 +4,14 @@
 // ============================================================================
 
 window.APP_CONFIG = {
-    // API Gateway endpoint - REPLACE AFTER TERRAFORM APPLY
-    API_ENDPOINT: "https://YOUR_API_GATEWAY_URL.execute-api.us-east-1.amazonaws.com",
+    // API Gateway endpoint
+    API_ENDPOINT: "https://v0437mg6s5.execute-api.us-east-1.amazonaws.com",
     
     // S3 bucket for uploads
-    S3_BUCKET: "",
+    S3_BUCKET: "healthcare-imaging-dev-training-data-637423443220",
+    
+    // HealthImaging Datastore ID
+    DATASTORE_ID: "2c5ad42eef2b4f82a7fe3e8905006d68",
     
     // Environment
     ENVIRONMENT: "dev",
@@ -24,5 +27,4 @@ window.APP_CONFIG = {
     }
 };
 
-console.log("App Config Loaded (placeholder):", window.APP_CONFIG);
-console.log("Run ./scripts/generate-frontend-config.sh after Terraform apply to auto-configure.");
+console.log("App Config Loaded:", window.APP_CONFIG);

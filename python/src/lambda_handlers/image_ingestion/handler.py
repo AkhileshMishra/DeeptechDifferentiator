@@ -21,17 +21,8 @@ def lambda_handler(event, context):
     Triggered by S3 ObjectCreated event when a DICOM file is uploaded.
     Starts an Import Job in AWS HealthImaging.
     
-    Expected event structure (from S3):
-    {
-        "Records": [
-            {
-                "s3": {
-                    "bucket": {"name": "bucket-name"},
-                    "object": {"key": "path/to/file.dcm"}
-                }
-            }
-        ]
-    }
+    HealthImaging requires inputS3Uri to be a folder, not a single file.
+    We copy the file to a unique import folder, then start the import.
     """
     print(f"Received event: {json.dumps(event)}")
     
@@ -58,12 +49,29 @@ def lambda_handler(event, context):
                 print(f"Skipping non-DICOM file: {key}")
                 continue
             
-            # Generate unique job name
+            # Generate unique job name and folder
             job_name = f"import-{uuid.uuid4().hex[:8]}"
+            import_folder = f"ahi-import/{job_name}/"
             
-            # Construct S3 URIs
-            input_s3_uri = f"s3://{bucket}/{key}"
+            # Get the filename from the key
+            filename = key.split('/')[-1]
+            
+            # Copy file to import folder (HealthImaging needs a folder, not a single file)
+            copy_source = {'Bucket': bucket, 'Key': key}
+            new_key = f"{import_folder}{filename}"
+            
+            print(f"Copying {key} to {new_key}")
+            s3_client.copy_object(
+                CopySource=copy_source,
+                Bucket=bucket,
+                Key=new_key
+            )
+            
+            # Construct S3 URIs - inputS3Uri must be a folder
+            input_s3_uri = f"s3://{bucket}/{import_folder}"
             output_s3_uri = f"s3://{output_bucket}/ahi-output/{job_name}/"
+            
+            print(f"Starting import job with inputS3Uri: {input_s3_uri}")
             
             # Start DICOM Import Job
             response = ahi_client.start_dicom_import_job(

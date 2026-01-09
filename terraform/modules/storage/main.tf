@@ -68,6 +68,19 @@ resource "aws_s3_bucket_lifecycle_configuration" "training_data" {
   }
 }
 
+# CORS configuration for browser access to DICOM files
+resource "aws_s3_bucket_cors_configuration" "training_data" {
+  bucket = aws_s3_bucket.training_data.id
+
+  cors_rule {
+    allowed_headers = ["*"]
+    allowed_methods = ["GET", "HEAD"]
+    allowed_origins = ["*"]
+    expose_headers  = ["ETag", "Content-Length", "Content-Type"]
+    max_age_seconds = 3600
+  }
+}
+
 
 # ============================================================================
 # PREPROCESSED DATA BUCKET

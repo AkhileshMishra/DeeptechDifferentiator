@@ -48,7 +48,16 @@ resource "aws_iam_role_policy" "lambda_custom" {
         Action = [
           "s3:GetObject",
           "s3:PutObject",
-          "s3:ListBucket"
+          "s3:CopyObject",
+          "s3:DeleteObject"
+        ]
+        Resource = [for arn in var.s3_bucket_arns : "${arn}/*"]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:ListBucket",
+          "s3:GetBucketLocation"
         ]
         Resource = var.s3_bucket_arns
       },

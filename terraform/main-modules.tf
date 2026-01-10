@@ -366,6 +366,32 @@ module "monitoring" {
 }
 
 # ============================================================================
+# COGNITO FOR HEALTHIMAGING BROWSER ACCESS
+# ============================================================================
+
+module "cognito" {
+  source = "./modules/cognito"
+
+  name_prefix                 = local.name_prefix
+  aws_account_id              = data.aws_caller_identity.current.account_id
+  healthimaging_datastore_arn = module.healthimaging.data_store_arn
+  
+  callback_urls = [
+    "https://${aws_cloudfront_distribution.frontend.domain_name}/",
+    "http://localhost:8080/",
+    "http://localhost:3000/"
+  ]
+  
+  logout_urls = [
+    "https://${aws_cloudfront_distribution.frontend.domain_name}/",
+    "http://localhost:8080/"
+  ]
+
+  tags = local.common_tags
+  depends_on = [module.healthimaging]
+}
+
+# ============================================================================
 # S3 EVENT NOTIFICATION FOR IMAGE INGESTION
 # ============================================================================
 
@@ -409,4 +435,20 @@ output "deployment_info" {
     region           = var.aws_region
     healthimaging_id = module.healthimaging.data_store_id
   }
+}
+
+# Cognito outputs for frontend
+output "cognito_user_pool_id" {
+  description = "Cognito User Pool ID"
+  value       = module.cognito.user_pool_id
+}
+
+output "cognito_client_id" {
+  description = "Cognito User Pool Client ID"
+  value       = module.cognito.user_pool_client_id
+}
+
+output "cognito_identity_pool_id" {
+  description = "Cognito Identity Pool ID"
+  value       = module.cognito.identity_pool_id
 }

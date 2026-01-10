@@ -139,6 +139,17 @@ window.APP_CONFIG = {
     DATASTORE_ID: "${module.healthimaging.data_store_id}",
     ENVIRONMENT: "${var.environment}",
     ENABLE_DEBUG: ${var.environment == "dev" ? "true" : "false"},
+    
+    // AWS Region
+    AWS_REGION: "${var.aws_region}",
+    
+    // Cognito configuration for direct HealthImaging access
+    COGNITO: {
+        USER_POOL_ID: "${module.cognito.user_pool_id}",
+        CLIENT_ID: "${module.cognito.user_pool_client_id}",
+        IDENTITY_POOL_ID: "${module.cognito.identity_pool_id}"
+    },
+    
     ROUTES: {
         GET_IMAGE_FRAME: "/get-image-frame",
         TRIGGER_PIPELINE: "/trigger-pipeline",

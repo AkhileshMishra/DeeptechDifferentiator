@@ -137,3 +137,21 @@ resource "aws_sqs_queue_policy" "dlq" {
     ]
   })
 }
+
+# ============================================================================
+# LAMBDA PERMISSIONS FOR EVENTBRIDGE
+# ============================================================================
+
+# Create Lambda permissions for each rule that targets a Lambda function
+resource "aws_lambda_permission" "eventbridge_invoke" {
+  for_each = {
+    for k, v in var.rules : k => v
+    if can(regex("^arn:aws:lambda:", v.targets[0].arn))
+  }
+
+  statement_id  = "AllowEventBridgeInvoke-${each.key}"
+  action        = "lambda:InvokeFunction"
+  function_name = each.value.targets[0].arn
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.rules[each.key].arn
+}

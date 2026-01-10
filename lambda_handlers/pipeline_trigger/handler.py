@@ -12,7 +12,15 @@ def lambda_handler(event, context):
     """
     print(f"Received Event: {json.dumps(event)}")
     
-    pipeline_name = os.environ.get('PIPELINE_NAME', 'DeepTechPipeline')
+    # Get pipeline name from ARN or use default
+    pipeline_arn = os.environ.get('SAGEMAKER_PIPELINE_ARN', '')
+    # Extract pipeline name from ARN: arn:aws:sagemaker:region:account:pipeline/name
+    if pipeline_arn:
+        pipeline_name = pipeline_arn.split('/')[-1]
+    else:
+        pipeline_name = os.environ.get('PIPELINE_NAME', 'DeepTechPipeline')
+    
+    s3_bucket = os.environ.get('S3_BUCKET') or os.environ.get('TRAINING_DATA_BUCKET', '')
     
     try:
         # 1. Parse Input
@@ -25,10 +33,11 @@ def lambda_handler(event, context):
 
         # 2. Define Pipeline Parameters
         # We pass the new image location to the pipeline to "retrain"
+        # Note: Parameter name must match SageMaker pipeline definition (InputDataUri)
         execution_params = [
             {
-                'Name': 'InputDataUrl',
-                'Value': f"s3://{os.environ.get('S3_BUCKET')}/input/{image_set_id}"
+                'Name': 'InputDataUri',
+                'Value': f"s3://{s3_bucket}/input/{image_set_id}"
             }
         ]
 

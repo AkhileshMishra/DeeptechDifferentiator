@@ -306,10 +306,11 @@ resource "aws_apigatewayv2_route" "get_url_route" {
 
 # Route 2: Trigger Pipeline (Connects to the Lambda from main-modules.tf)
 resource "aws_apigatewayv2_integration" "trigger_int" {
-  api_id           = aws_apigatewayv2_api.frontend_api.id
-  integration_type = "AWS_PROXY"
-  # References the pipeline lambda created in the modules
-  integration_uri  = module.lambda_functions.pipeline_trigger_function_arn
+  api_id             = aws_apigatewayv2_api.frontend_api.id
+  integration_type   = "AWS_PROXY"
+  integration_method = "POST"
+  # Use invoke ARN format for Lambda integration
+  integration_uri    = "arn:aws:apigateway:${var.aws_region}:lambda:path/2015-03-31/functions/${module.lambda_functions.pipeline_trigger_function_arn}/invocations"
 }
 
 resource "aws_apigatewayv2_route" "trigger_route" {

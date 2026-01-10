@@ -18,21 +18,38 @@ def lambda_handler(event, context):
     else:
         pipeline_name = os.environ.get('PIPELINE_NAME', 'HealthcareImagingPipeline')
     
+    training_bucket = os.environ.get('TRAINING_DATA_BUCKET', '')
+    
     print(f"Using pipeline: {pipeline_name}")
     
     try:
-        # Parse body from API Gateway
+        # Parse body from API Gateway or EventBridge
         body = {}
         if 'body' in event:
             body = json.loads(event['body']) if event['body'] else {}
+        elif 'detail' in event:
+            # EventBridge event
+            body = event.get('detail', {})
         
         image_set_id = body.get('imageSetId', 'demo-image')
         
+        # Build pipeline parameters
+        pipeline_params = []
+        if training_bucket:
+            pipeline_params.append({
+                'Name': 'InputDataUri',
+                'Value': f"s3://{training_bucket}/input/{image_set_id}"
+            })
+        
         # Start SageMaker Pipeline
-        response = sm_client.start_pipeline_execution(
-            PipelineName=pipeline_name,
-            PipelineExecutionDisplayName=f"Verification-{image_set_id[:20]}-{int(time.time())}"
-        )
+        execution_args = {
+            'PipelineName': pipeline_name,
+            'PipelineExecutionDisplayName': f"Verification-{image_set_id[:20]}-{int(time.time())}"
+        }
+        if pipeline_params:
+            execution_args['PipelineParameters'] = pipeline_params
+            
+        response = sm_client.start_pipeline_execution(**execution_args)
         
         print(f"Pipeline started: {response['PipelineExecutionArn']}")
         

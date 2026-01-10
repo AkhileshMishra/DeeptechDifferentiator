@@ -159,6 +159,7 @@ resource "aws_lambda_function" "pipeline_trigger" {
   environment {
     variables = {
       SAGEMAKER_PIPELINE_ARN = var.sagemaker_pipeline_arn
+      TRAINING_DATA_BUCKET   = var.training_data_bucket
       LOG_LEVEL              = "INFO"
     }
   }

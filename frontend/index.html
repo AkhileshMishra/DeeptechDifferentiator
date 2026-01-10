@@ -248,17 +248,34 @@
         </div>
     </div>
 
-    <!-- Cornerstone.js for medical image viewing (includes JP2 decoder) -->
-    <script src="https://unpkg.com/cornerstone-core@2.6.1/dist/cornerstone.min.js"></script>
-    <script src="https://unpkg.com/cornerstone-wado-image-loader@4.13.2/dist/cornerstoneWADOImageLoader.bundle.min.js"></script>
+    <!-- OpenJPEG WASM decoder for JP2/J2K/HTJ2K -->
+    <script src="https://unpkg.com/@cornerstonejs/codec-openjpeg@1.2.3/dist/openjpegwasm.js"></script>
     
     <script>
         let selectedImageSetId = null;
+        let openjpegModule = null;
         
         window.onload = async function() {
             initializeConfig();
-            document.getElementById('configStatus').innerText = '✓ Connected | Ready';
+            await initializeDecoder();
         };
+        
+        async function initializeDecoder() {
+            try {
+                // Initialize OpenJPEG WASM decoder from cornerstone
+                if (typeof OpenJPEGWASM !== 'undefined') {
+                    openjpegModule = await OpenJPEGWASM;
+                    console.log('OpenJPEG WASM decoder initialized');
+                    document.getElementById('configStatus').innerText = '✓ Connected | JP2/HTJ2K decoder ready';
+                } else {
+                    console.warn('OpenJPEGWASM not available');
+                    document.getElementById('configStatus').innerText = '✓ Connected | JPEG/PNG only';
+                }
+            } catch (e) {
+                console.warn('Decoder init error:', e);
+                document.getElementById('configStatus').innerText = '✓ Connected';
+            }
+        }
         
         function initializeConfig() {
             const config = window.APP_CONFIG || {};
@@ -362,11 +379,12 @@
             const isPNG = frameData[0] === 0x89 && frameData[1] === 0x50 && frameData[2] === 0x4E && frameData[3] === 0x47;
             const isJ2K = frameData[0] === 0xFF && frameData[1] === 0x4F;
             const isJP2 = frameData[0] === 0x00 && frameData[1] === 0x00 && frameData[4] === 0x6A && frameData[5] === 0x50;
+            const isHTJ2K = isJ2K; // HTJ2K uses same codestream marker as J2K
             
-            const formatName = isJPEG ? 'JPEG' : isPNG ? 'PNG' : isJ2K ? 'J2K' : isJP2 ? 'JP2' : 'Unknown';
-            console.log(`Frame: ${frameData.length} bytes, Format: ${formatName}`);
+            const formatName = isJPEG ? 'JPEG' : isPNG ? 'PNG' : isJ2K ? 'J2K/HTJ2K' : isJP2 ? 'JP2' : 'Unknown';
+            console.log(`Frame: ${frameData.length} bytes, Format: ${formatName}, First bytes: ${Array.from(frameData.slice(0,8)).map(b=>b.toString(16).padStart(2,'0')).join(' ')}`);
             
-            // For JPEG/PNG - display directly
+            // For JPEG/PNG - display directly using browser native support
             if (isJPEG || isPNG) {
                 const mimeType = isJPEG ? 'image/jpeg' : 'image/png';
                 const blob = new Blob([frameData], { type: mimeType });
@@ -377,50 +395,122 @@
                 img.style.maxWidth = '100%';
                 img.style.maxHeight = '100%';
                 viewerEl.appendChild(img);
-            }
-            // For JP2/J2K - use cornerstone decoder if available
-            else if (isJ2K || isJP2) {
-                try {
-                    // Try cornerstone decoder
-                    if (typeof cornerstoneWADOImageLoader !== 'undefined' && cornerstoneWADOImageLoader.external.dicomParser) {
-                        const decoded = await decodeWithCornerstone(frameData, width, height);
-                        if (decoded) {
-                            viewerEl.appendChild(decoded);
-                        } else {
-                            throw new Error('Cornerstone decode failed');
-                        }
-                    } else {
-                        throw new Error('No JP2 decoder available');
-                    }
-                } catch (e) {
-                    console.warn('JP2 decode error:', e);
-                    // Show raw data info
-                    viewerEl.innerHTML = `
-                        <div style="color: #888; text-align: center; padding: 20px;">
-                            <p>📦 JP2 Format Detected</p>
-                            <p style="font-size: 0.8em;">Size: ${formatBytes(frameData.length)}</p>
-                            <p style="font-size: 0.8em;">Dimensions: ${width}x${height}</p>
-                            <p style="font-size: 0.7em; color: #666;">Browser JP2 decoding not supported.<br>Image data received successfully from HealthImaging.</p>
-                        </div>
-                    `;
-                }
-            }
-            // Unknown format
-            else {
-                viewerEl.innerHTML = `<span style="color:orange;">Unknown format: ${formatName}</span>`;
+                addSourceIndicator(viewerEl);
+                return;
             }
             
-            // Add source indicator
+            // For JP2/J2K/HTJ2K - use OpenJPEG WASM decoder
+            if (isJ2K || isJP2) {
+                try {
+                    if (openjpegModule) {
+                        console.log('Decoding with OpenJPEG WASM...');
+                        
+                        // Create decoder instance
+                        const decoder = new openjpegModule.J2KDecoder();
+                        
+                        // Get encoded buffer and copy data
+                        const encodedBuffer = decoder.getEncodedBuffer(frameData.length);
+                        encodedBuffer.set(frameData);
+                        
+                        // Decode
+                        decoder.decode();
+                        
+                        // Get decoded data and frame info
+                        const decodedBuffer = decoder.getDecodedBuffer();
+                        const frameInfo = decoder.getFrameInfo();
+                        
+                        const decodedWidth = frameInfo.width || width;
+                        const decodedHeight = frameInfo.height || height;
+                        const numComponents = frameInfo.componentCount || 1;
+                        const bitsPerSample = frameInfo.bitsPerSample || 8;
+                        
+                        console.log(`Decoded: ${decodedWidth}x${decodedHeight}, ${numComponents} components, ${bitsPerSample} bits`);
+                        
+                        // Create canvas and render
+                        const canvas = document.createElement('canvas');
+                        canvas.width = decodedWidth;
+                        canvas.height = decodedHeight;
+                        const ctx = canvas.getContext('2d');
+                        const imgData = ctx.createImageData(decodedWidth, decodedHeight);
+                        
+                        // Handle different bit depths and component counts
+                        const pixelCount = decodedWidth * decodedHeight;
+                        
+                        if (numComponents === 1) {
+                            // Grayscale
+                            if (bitsPerSample <= 8) {
+                                for (let i = 0; i < pixelCount; i++) {
+                                    const val = decodedBuffer[i];
+                                    imgData.data[i * 4] = val;
+                                    imgData.data[i * 4 + 1] = val;
+                                    imgData.data[i * 4 + 2] = val;
+                                    imgData.data[i * 4 + 3] = 255;
+                                }
+                            } else {
+                                // 16-bit - scale to 8-bit
+                                const view = new Uint16Array(decodedBuffer.buffer);
+                                const maxVal = (1 << bitsPerSample) - 1;
+                                for (let i = 0; i < pixelCount; i++) {
+                                    const val = Math.round((view[i] / maxVal) * 255);
+                                    imgData.data[i * 4] = val;
+                                    imgData.data[i * 4 + 1] = val;
+                                    imgData.data[i * 4 + 2] = val;
+                                    imgData.data[i * 4 + 3] = 255;
+                                }
+                            }
+                        } else if (numComponents === 3) {
+                            // RGB
+                            for (let i = 0; i < pixelCount; i++) {
+                                imgData.data[i * 4] = decodedBuffer[i * 3];
+                                imgData.data[i * 4 + 1] = decodedBuffer[i * 3 + 1];
+                                imgData.data[i * 4 + 2] = decodedBuffer[i * 3 + 2];
+                                imgData.data[i * 4 + 3] = 255;
+                            }
+                        } else {
+                            // RGBA or other
+                            imgData.data.set(decodedBuffer.slice(0, imgData.data.length));
+                        }
+                        
+                        ctx.putImageData(imgData, 0, 0);
+                        viewerEl.appendChild(canvas);
+                        addSourceIndicator(viewerEl);
+                        return;
+                    }
+                    throw new Error('OpenJPEG decoder not available');
+                } catch (e) {
+                    console.warn('JP2/J2K decode error:', e);
+                    // Fallback: show info about the data
+                    viewerEl.innerHTML = `
+                        <div style="color: #888; text-align: center; padding: 20px;">
+                            <p>📦 ${formatName} Format</p>
+                            <p style="font-size: 0.8em;">Size: ${formatBytes(frameData.length)}</p>
+                            <p style="font-size: 0.8em;">Dimensions: ${width}x${height}</p>
+                            <p style="font-size: 0.7em; color: #f90;">Decode error: ${e.message}</p>
+                            <p style="font-size: 0.7em; color: #666;">Data received from HealthImaging.</p>
+                        </div>
+                    `;
+                    addSourceIndicator(viewerEl);
+                    return;
+                }
+            }
+            
+            // Unknown format - show info
+            viewerEl.innerHTML = `
+                <div style="color: #888; text-align: center; padding: 20px;">
+                    <p>📦 ${formatName} Format</p>
+                    <p style="font-size: 0.8em;">Size: ${formatBytes(frameData.length)}</p>
+                    <p style="font-size: 0.8em;">Dimensions: ${width}x${height}</p>
+                    <p style="font-size: 0.7em; color: #666;">Data received from HealthImaging.</p>
+                </div>
+            `;
+            addSourceIndicator(viewerEl);
+        }
+        
+        function addSourceIndicator(viewerEl) {
             const indicator = document.createElement('div');
             indicator.className = 'source-indicator healthimaging';
             indicator.innerText = '🏥 HealthImaging';
             viewerEl.appendChild(indicator);
-        }
-        
-        async function decodeWithCornerstone(frameData, width, height) {
-            // This is a placeholder - cornerstone needs more setup
-            // For now, return null to trigger fallback
-            return null;
         }
         
         function formatBytes(bytes) {

@@ -3,8 +3,6 @@ import boto3
 import os
 import base64
 import gzip
-import subprocess
-import tempfile
 from botocore.exceptions import ClientError
 
 s3 = boto3.client('s3')

@@ -78,7 +78,7 @@ def list_image_sets(datastore_id):
 def get_image_frame(datastore_id, image_set_id):
     """Get an image frame from HealthImaging."""
     try:
-        # Step 1: Get metadata to find frame ID
+        # Step 1: Get metadata to find frame ID and image dimensions
         print(f"Getting metadata for image set: {image_set_id}")
         
         metadata_response = ahi.get_image_set_metadata(
@@ -95,13 +95,17 @@ def get_image_frame(datastore_id, image_set_id):
         
         metadata = json.loads(metadata_blob.decode('utf-8'))
         
-        # Extract first frame ID
-        frame_id = extract_first_frame_id(metadata)
+        # Extract first frame ID and image info
+        frame_info = extract_frame_info(metadata)
         
-        if not frame_id:
+        if not frame_info:
             return error_response(404, 'No frames found in image set')
         
-        print(f"Found frame ID: {frame_id}")
+        frame_id = frame_info['frameId']
+        width = frame_info.get('width', 512)
+        height = frame_info.get('height', 512)
+        
+        print(f"Found frame ID: {frame_id}, dimensions: {width}x{height}")
         
         # Step 2: Get the frame data
         frame_response = ahi.get_image_frame(
@@ -114,7 +118,7 @@ def get_image_frame(datastore_id, image_set_id):
         
         print(f"Retrieved frame, size: {len(frame_data)} bytes")
         
-        # Return frame as base64 (for JSON response)
+        # Return frame as base64 with metadata
         return {
             'statusCode': 200,
             'headers': cors_headers(),
@@ -123,6 +127,9 @@ def get_image_frame(datastore_id, image_set_id):
                 'imageSetId': image_set_id,
                 'frameId': frame_id,
                 'frameSize': len(frame_data),
+                'width': width,
+                'height': height,
+                'format': 'htj2k',
                 'data': base64.b64encode(frame_data).decode('utf-8')
             })
         }
@@ -134,17 +141,26 @@ def get_image_frame(datastore_id, image_set_id):
         return error_response(500, f"Failed to get frame: {str(e)}")
 
 
-def extract_first_frame_id(metadata):
-    """Extract the first frame ID from HealthImaging metadata."""
+def extract_frame_info(metadata):
+    """Extract the first frame ID and image dimensions from HealthImaging metadata."""
     try:
         study = metadata.get('Study', {})
         for series_id, series in study.get('Series', {}).items():
             for instance_id, instance in series.get('Instances', {}).items():
                 frames = instance.get('ImageFrames', [])
                 if frames:
-                    return frames[0].get('ID')
+                    # Get DICOM attributes for dimensions
+                    dicom_tags = instance.get('DICOM', {})
+                    width = dicom_tags.get('Columns', 512)
+                    height = dicom_tags.get('Rows', 512)
+                    
+                    return {
+                        'frameId': frames[0].get('ID'),
+                        'width': width,
+                        'height': height
+                    }
     except Exception as e:
-        print(f"Error extracting frame ID: {str(e)}")
+        print(f"Error extracting frame info: {str(e)}")
     return None
 
 

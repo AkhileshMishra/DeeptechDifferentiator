@@ -3,6 +3,8 @@ import boto3
 import os
 import base64
 import gzip
+import subprocess
+import tempfile
 from botocore.exceptions import ClientError
 
 s3 = boto3.client('s3')
@@ -76,7 +78,7 @@ def list_image_sets(datastore_id):
 
 
 def get_image_frame(datastore_id, image_set_id):
-    """Get an image frame from HealthImaging."""
+    """Get an image frame from HealthImaging and convert to browser-displayable format."""
     try:
         # Step 1: Get metadata to find frame ID and image dimensions
         print(f"Getting metadata for image set: {image_set_id}")
@@ -104,8 +106,10 @@ def get_image_frame(datastore_id, image_set_id):
         frame_id = frame_info['frameId']
         width = frame_info.get('width', 512)
         height = frame_info.get('height', 512)
+        bits_allocated = frame_info.get('bitsAllocated', 8)
+        photometric = frame_info.get('photometric', 'MONOCHROME2')
         
-        print(f"Found frame ID: {frame_id}, dimensions: {width}x{height}")
+        print(f"Found frame ID: {frame_id}, dimensions: {width}x{height}, bits: {bits_allocated}, photometric: {photometric}")
         
         # Step 2: Get the frame data
         frame_response = ahi.get_image_frame(
@@ -115,8 +119,43 @@ def get_image_frame(datastore_id, image_set_id):
         )
         
         frame_data = frame_response['imageFrameBlob'].read()
+        original_size = len(frame_data)
         
-        print(f"Retrieved frame, size: {len(frame_data)} bytes")
+        print(f"Retrieved frame, size: {original_size} bytes, first bytes: {frame_data[:8].hex()}")
+        
+        # Detect format and convert if needed
+        output_format = 'original'
+        
+        # Check if it's already JPEG (browser can display directly)
+        if frame_data[:2] == b'\xff\xd8':
+            output_format = 'jpeg'
+            print("Frame is JPEG - returning as-is")
+        # Check if it's PNG
+        elif frame_data[:4] == b'\x89PNG':
+            output_format = 'png'
+            print("Frame is PNG - returning as-is")
+        # JP2 or J2K - try to convert using Pillow
+        elif frame_data[:2] == b'\xff\x4f' or (len(frame_data) > 5 and frame_data[4:6] == b'jP'):
+            output_format = 'jp2'
+            print("Frame is JP2/J2K - attempting conversion")
+            
+            # Try to decode using Pillow (requires openjpeg library)
+            try:
+                from PIL import Image
+                import io
+                
+                # Load JP2 image
+                img = Image.open(io.BytesIO(frame_data))
+                
+                # Convert to PNG
+                png_buffer = io.BytesIO()
+                img.save(png_buffer, format='PNG')
+                frame_data = png_buffer.getvalue()
+                output_format = 'png'
+                print(f"Converted to PNG using Pillow: {len(frame_data)} bytes")
+            except Exception as e:
+                print(f"Pillow JP2 decode failed: {e}")
+                # Return raw JP2 - frontend will handle
         
         # Return frame as base64 with metadata
         return {
@@ -126,10 +165,13 @@ def get_image_frame(datastore_id, image_set_id):
                 'source': 'healthimaging',
                 'imageSetId': image_set_id,
                 'frameId': frame_id,
-                'frameSize': len(frame_data),
+                'frameSize': original_size,
+                'outputSize': len(frame_data),
                 'width': width,
                 'height': height,
-                'format': 'htj2k',
+                'format': output_format,
+                'bitsAllocated': bits_allocated,
+                'photometric': photometric,
                 'data': base64.b64encode(frame_data).decode('utf-8')
             })
         }
@@ -153,11 +195,15 @@ def extract_frame_info(metadata):
                     dicom_tags = instance.get('DICOM', {})
                     width = dicom_tags.get('Columns', 512)
                     height = dicom_tags.get('Rows', 512)
+                    bits_allocated = dicom_tags.get('BitsAllocated', 8)
+                    photometric = dicom_tags.get('PhotometricInterpretation', 'MONOCHROME2')
                     
                     return {
                         'frameId': frames[0].get('ID'),
                         'width': width,
-                        'height': height
+                        'height': height,
+                        'bitsAllocated': bits_allocated,
+                        'photometric': photometric
                     }
     except Exception as e:
         print(f"Error extracting frame info: {str(e)}")

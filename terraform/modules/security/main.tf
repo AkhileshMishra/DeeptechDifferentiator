@@ -106,14 +106,10 @@ resource "aws_kms_key" "sagemaker" {
           "kms:ReEncrypt*",
           "kms:GenerateDataKey*",
           "kms:DescribeKey",
-          "kms:CreateGrant"
+          "kms:CreateGrant",
+          "kms:RetireGrant"
         ]
         Resource = "*"
-        Condition = {
-          StringEquals = {
-            "kms:CallerAccount" = data.aws_caller_identity.current.account_id
-          }
-        }
       }
     ]
   })

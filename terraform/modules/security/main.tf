@@ -63,7 +63,7 @@ resource "aws_kms_alias" "s3" {
 resource "aws_kms_key" "sagemaker" {
   count = var.create_kms_key_sagemaker ? 1 : 0
 
-  description             = "KMS key for SageMaker encryption - ${var.name_prefix}"
+  description             = "KMS key for SageMaker and HealthImaging encryption - ${var.name_prefix}"
   deletion_window_in_days = 30
   enable_key_rotation     = true
 
@@ -93,6 +93,27 @@ resource "aws_kms_key" "sagemaker" {
           "kms:DescribeKey"
         ]
         Resource = "*"
+      },
+      {
+        Sid    = "Allow HealthImaging Service"
+        Effect = "Allow"
+        Principal = {
+          Service = "medical-imaging.amazonaws.com"
+        }
+        Action = [
+          "kms:Encrypt",
+          "kms:Decrypt",
+          "kms:ReEncrypt*",
+          "kms:GenerateDataKey*",
+          "kms:DescribeKey",
+          "kms:CreateGrant"
+        ]
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "kms:CallerAccount" = data.aws_caller_identity.current.account_id
+          }
+        }
       }
     ]
   })

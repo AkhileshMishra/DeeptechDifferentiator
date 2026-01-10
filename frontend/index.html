@@ -8,8 +8,8 @@
     <!-- Load configuration first -->
     <script src="config.js"></script>
     
-    <!-- AWS SDK v3 for browser -->
-    <script src="https://unpkg.com/@aws-sdk/client-cognito-identity@3.450.0/dist-es/index.js" type="module"></script>
+    <!-- AWS SDK v3 Browser Bundle -->
+    <script src="https://unpkg.com/@aws-sdk/client-cognito-identity@3.450.0/dist-cjs/index.js"></script>
     
     <style>
         * { box-sizing: border-box; }
@@ -87,12 +87,7 @@
             justify-content: center;
             overflow: hidden;
         }
-        #viewer img {
-            max-width: 100%;
-            max-height: 100%;
-            object-fit: contain;
-        }
-        #viewer canvas {
+        #viewer img, #viewer canvas {
             max-width: 100%;
             max-height: 100%;
         }
@@ -127,9 +122,6 @@
         button.verify { 
             background: linear-gradient(135deg, #28a745 0%, #1e7e34 100%);
             border-color: #28a745; 
-        }
-        button.verify:hover {
-            background: linear-gradient(135deg, #34ce57 0%, #28a745 100%);
         }
         button.streaming {
             background: linear-gradient(135deg, #7b2cbf 0%, #5a1d8f 100%);
@@ -180,15 +172,10 @@
             border-radius: 4px;
             font-size: 0.7em;
             font-weight: bold;
+            z-index: 10;
         }
-        .source-indicator.healthimaging {
-            background: #7b2cbf;
-            color: white;
-        }
-        .source-indicator.s3 {
-            background: #ff9900;
-            color: white;
-        }
+        .source-indicator.healthimaging { background: #7b2cbf; color: white; }
+        .source-indicator.s3 { background: #ff9900; color: white; }
         .image-sets-list {
             max-height: 150px;
             overflow-y: auto;
@@ -204,9 +191,7 @@
             font-size: 0.85em;
             margin-bottom: 4px;
         }
-        .image-set-item:hover {
-            background: rgba(0, 212, 255, 0.2);
-        }
+        .image-set-item:hover { background: rgba(0, 212, 255, 0.2); }
         .image-set-item.selected {
             background: rgba(123, 44, 191, 0.3);
             border: 1px solid #7b2cbf;
@@ -221,8 +206,8 @@
 <body>
     <div class="header">
         <h1>DeepTech Triage</h1>
-        <p class="subtitle">AWS HealthImaging + HTJ2K Streaming</p>
-        <span class="badge streaming" id="streamingBadge">Direct Streaming</span>
+        <p class="subtitle">AWS HealthImaging + HTJ2K Direct Streaming</p>
+        <span class="badge streaming" id="streamingBadge">Direct API Access</span>
     </div>
     
     <div class="config-panel">
@@ -277,20 +262,15 @@
         </div>
     </div>
 
-    <script type="module">
-        // Import AWS SDK modules
-        import { CognitoIdentityClient } from 'https://esm.sh/@aws-sdk/client-cognito-identity@3.450.0';
-        import { fromCognitoIdentityPool } from 'https://esm.sh/@aws-sdk/credential-provider-cognito-identity@3.450.0';
-        import { MedicalImagingClient, SearchImageSetsCommand, GetImageSetMetadataCommand, GetImageFrameCommand } from 'https://esm.sh/@aws-sdk/client-medical-imaging@3.450.0';
-        
-        let medicalImagingClient = null;
+    <script>
+        // Global state
+        let awsCredentials = null;
         let selectedImageSetId = null;
-        let credentials = null;
         
         // Initialize on page load
         window.onload = async function() {
             initializeConfig();
-            await initializeAWSClient();
+            await initializeCognito();
         };
         
         function initializeConfig() {
@@ -301,15 +281,15 @@
             document.getElementById('identityPoolId').value = config.COGNITO?.IDENTITY_POOL_ID || '';
             
             if (config.COGNITO?.IDENTITY_POOL_ID) {
-                document.getElementById('configStatus').innerText = '✓ Cognito configured for direct HealthImaging access';
+                document.getElementById('configStatus').innerText = '✓ Cognito configured';
                 document.getElementById('configStatus').className = 'config-status';
             } else {
-                document.getElementById('configStatus').innerText = '⚠ Cognito not configured - using API fallback';
+                document.getElementById('configStatus').innerText = '⚠ Cognito not configured';
                 document.getElementById('configStatus').className = 'config-status warning';
             }
         }
         
-        async function initializeAWSClient() {
+        async function initializeCognito() {
             const config = window.APP_CONFIG || {};
             const region = config.AWS_REGION || 'us-east-1';
             const identityPoolId = config.COGNITO?.IDENTITY_POOL_ID;
@@ -320,51 +300,170 @@
             }
             
             try {
-                const cognitoClient = new CognitoIdentityClient({ region });
+                // Get credentials from Cognito Identity Pool (unauthenticated)
+                const getIdResponse = await fetch(
+                    `https://cognito-identity.${region}.amazonaws.com/`,
+                    {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-amz-json-1.1',
+                            'X-Amz-Target': 'AWSCognitoIdentityService.GetId'
+                        },
+                        body: JSON.stringify({ IdentityPoolId: identityPoolId })
+                    }
+                );
                 
-                credentials = fromCognitoIdentityPool({
-                    client: cognitoClient,
-                    identityPoolId: identityPoolId
-                });
+                const idData = await getIdResponse.json();
                 
-                medicalImagingClient = new MedicalImagingClient({
-                    region: region,
-                    credentials: credentials
-                });
-                
-                console.log('AWS Medical Imaging client initialized');
-                document.getElementById('configStatus').innerText = '✓ AWS client ready for direct streaming';
-                
+                if (idData.IdentityId) {
+                    // Get credentials for this identity
+                    const credsResponse = await fetch(
+                        `https://cognito-identity.${region}.amazonaws.com/`,
+                        {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/x-amz-json-1.1',
+                                'X-Amz-Target': 'AWSCognitoIdentityService.GetCredentialsForIdentity'
+                            },
+                            body: JSON.stringify({ IdentityId: idData.IdentityId })
+                        }
+                    );
+                    
+                    const credsData = await credsResponse.json();
+                    
+                    if (credsData.Credentials) {
+                        awsCredentials = {
+                            accessKeyId: credsData.Credentials.AccessKeyId,
+                            secretAccessKey: credsData.Credentials.SecretKey,
+                            sessionToken: credsData.Credentials.SessionToken,
+                            expiration: credsData.Credentials.Expiration
+                        };
+                        
+                        console.log('Cognito credentials obtained');
+                        document.getElementById('configStatus').innerText = '✓ AWS credentials ready for direct streaming';
+                        document.getElementById('configStatus').className = 'config-status';
+                    }
+                }
             } catch (error) {
-                console.error('Failed to initialize AWS client:', error);
-                document.getElementById('configStatus').innerText = '❌ Failed to initialize AWS client: ' + error.message;
+                console.error('Failed to get Cognito credentials:', error);
+                document.getElementById('configStatus').innerText = '❌ Failed to get credentials: ' + error.message;
                 document.getElementById('configStatus').className = 'config-status error';
             }
         }
         
-        // Make functions available globally
-        window.listImageSets = async function() {
+        // AWS Signature V4 signing
+        async function signRequest(method, url, headers, body, credentials, region, service) {
+            const encoder = new TextEncoder();
+            
+            const datetime = new Date().toISOString().replace(/[:-]|\.\d{3}/g, '');
+            const date = datetime.substr(0, 8);
+            
+            headers['x-amz-date'] = datetime;
+            if (credentials.sessionToken) {
+                headers['x-amz-security-token'] = credentials.sessionToken;
+            }
+            
+            const urlObj = new URL(url);
+            const canonicalUri = urlObj.pathname;
+            const canonicalQuerystring = urlObj.searchParams.toString();
+            
+            const signedHeaders = Object.keys(headers)
+                .map(k => k.toLowerCase())
+                .sort()
+                .join(';');
+            
+            const canonicalHeaders = Object.keys(headers)
+                .map(k => k.toLowerCase() + ':' + headers[k].trim())
+                .sort()
+                .join('\n') + '\n';
+            
+            const payloadHash = await sha256(body || '');
+            
+            const canonicalRequest = [
+                method,
+                canonicalUri,
+                canonicalQuerystring,
+                canonicalHeaders,
+                signedHeaders,
+                payloadHash
+            ].join('\n');
+            
+            const credentialScope = `${date}/${region}/${service}/aws4_request`;
+            const stringToSign = [
+                'AWS4-HMAC-SHA256',
+                datetime,
+                credentialScope,
+                await sha256(canonicalRequest)
+            ].join('\n');
+            
+            const kDate = await hmac('AWS4' + credentials.secretAccessKey, date);
+            const kRegion = await hmac(kDate, region);
+            const kService = await hmac(kRegion, service);
+            const kSigning = await hmac(kService, 'aws4_request');
+            const signature = await hmacHex(kSigning, stringToSign);
+            
+            headers['Authorization'] = `AWS4-HMAC-SHA256 Credential=${credentials.accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+            
+            return headers;
+        }
+        
+        async function sha256(message) {
+            const msgBuffer = new TextEncoder().encode(message);
+            const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+            return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+        
+        async function hmac(key, message) {
+            const keyBuffer = typeof key === 'string' ? new TextEncoder().encode(key) : key;
+            const msgBuffer = new TextEncoder().encode(message);
+            const cryptoKey = await crypto.subtle.importKey('raw', keyBuffer, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+            return await crypto.subtle.sign('HMAC', cryptoKey, msgBuffer);
+        }
+        
+        async function hmacHex(key, message) {
+            const result = await hmac(key, message);
+            return Array.from(new Uint8Array(result)).map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+        
+        // HealthImaging API calls
+        async function listImageSets() {
             const statusEl = document.getElementById('status');
             const listEl = document.getElementById('imageSetsList');
             const config = window.APP_CONFIG || {};
+            const region = config.AWS_REGION || 'us-east-1';
             const datastoreId = config.DATASTORE_ID;
             
-            if (!medicalImagingClient) {
-                statusEl.innerText = '❌ AWS client not initialized';
+            if (!awsCredentials) {
+                statusEl.innerText = '❌ AWS credentials not available. Check Cognito configuration.';
                 return;
             }
             
             statusEl.innerText = '🔄 Searching HealthImaging datastore...';
             
             try {
-                const command = new SearchImageSetsCommand({
-                    datastoreId: datastoreId,
-                    searchCriteria: {},
-                    maxResults: 20
+                const url = `https://medical-imaging.${region}.amazonaws.com/datastore/${datastoreId}/searchImageSets`;
+                const body = JSON.stringify({ searchCriteria: {}, maxResults: 20 });
+                
+                let headers = {
+                    'Content-Type': 'application/json',
+                    'Host': `medical-imaging.${region}.amazonaws.com`
+                };
+                
+                headers = await signRequest('POST', url, headers, body, awsCredentials, region, 'medical-imaging');
+                
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: headers,
+                    body: body
                 });
                 
-                const response = await medicalImagingClient.send(command);
-                const imageSets = response.imageSetsMetadataSummaries || [];
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`API error ${response.status}: ${errorText}`);
+                }
+                
+                const data = await response.json();
+                const imageSets = data.imageSetsMetadataSummaries || [];
                 
                 listEl.style.display = 'block';
                 
@@ -376,7 +475,7 @@
                 
                 listEl.innerHTML = imageSets.map(set => `
                     <div class="image-set-item" onclick="selectImageSet('${set.imageSetId}', this)">
-                        <strong>${set.imageSetId}</strong><br>
+                        <strong>${set.imageSetId.substring(0, 16)}...</strong><br>
                         <small>Created: ${new Date(set.createdAt).toLocaleString()}</small>
                     </div>
                 `).join('');
@@ -389,23 +488,23 @@
                 listEl.innerHTML = '<div style="color: #dc3545; padding: 10px;">Error loading image sets</div>';
                 listEl.style.display = 'block';
             }
-        };
+        }
         
-        window.selectImageSet = function(imageSetId, element) {
+        function selectImageSet(imageSetId, element) {
             selectedImageSetId = imageSetId;
             document.getElementById('imageSetId').value = imageSetId;
             
-            // Update selection UI
             document.querySelectorAll('.image-set-item').forEach(el => el.classList.remove('selected'));
             if (element) element.classList.add('selected');
             
             document.getElementById('status').innerText = `Selected: ${imageSetId}`;
-        };
+        }
         
-        window.streamFromHealthImaging = async function() {
+        async function streamFromHealthImaging() {
             const statusEl = document.getElementById('status');
             const viewerEl = document.getElementById('viewer');
             const config = window.APP_CONFIG || {};
+            const region = config.AWS_REGION || 'us-east-1';
             const datastoreId = config.DATASTORE_ID;
             const imageSetId = document.getElementById('imageSetId').value || selectedImageSetId;
             
@@ -414,8 +513,8 @@
                 return;
             }
             
-            if (!medicalImagingClient) {
-                statusEl.innerText = '❌ AWS client not initialized. Check Cognito configuration.';
+            if (!awsCredentials) {
+                statusEl.innerText = '❌ AWS credentials not available';
                 return;
             }
             
@@ -424,24 +523,32 @@
             document.getElementById('streamBtn').disabled = true;
             
             try {
-                // Step 1: Get metadata to find frame IDs
+                // Step 1: Get metadata
                 statusEl.innerText = '🔄 Fetching image metadata...';
                 
-                const metadataCommand = new GetImageSetMetadataCommand({
-                    datastoreId: datastoreId,
-                    imageSetId: imageSetId
+                const metadataUrl = `https://medical-imaging.${region}.amazonaws.com/datastore/${datastoreId}/imageSet/${imageSetId}/getImageSetMetadata`;
+                
+                let metadataHeaders = {
+                    'Host': `medical-imaging.${region}.amazonaws.com`
+                };
+                
+                metadataHeaders = await signRequest('POST', metadataUrl, metadataHeaders, '', awsCredentials, region, 'medical-imaging');
+                
+                const metadataResponse = await fetch(metadataUrl, {
+                    method: 'POST',
+                    headers: metadataHeaders
                 });
                 
-                const metadataResponse = await medicalImagingClient.send(metadataCommand);
+                if (!metadataResponse.ok) {
+                    throw new Error(`Metadata error: ${metadataResponse.status}`);
+                }
                 
-                // Parse metadata blob
-                const metadataBlob = metadataResponse.imageSetMetadataBlob;
-                const metadataText = await new Response(metadataBlob).text();
+                const metadataBlob = await metadataResponse.blob();
+                const metadataText = await metadataBlob.text();
                 const metadata = JSON.parse(metadataText);
                 
                 // Extract first frame ID
                 const frameId = extractFirstFrameId(metadata);
-                
                 if (!frameId) {
                     throw new Error('No frames found in image set');
                 }
@@ -449,18 +556,28 @@
                 console.log('Found frame ID:', frameId);
                 statusEl.innerText = '🔄 Streaming frame from HealthImaging...';
                 
-                // Step 2: Get the image frame (HTJ2K encoded)
-                const frameCommand = new GetImageFrameCommand({
-                    datastoreId: datastoreId,
-                    imageSetId: imageSetId,
-                    imageFrameInformation: { imageFrameId: frameId }
+                // Step 2: Get image frame
+                const frameUrl = `https://medical-imaging.${region}.amazonaws.com/datastore/${datastoreId}/imageSet/${imageSetId}/getImageFrame`;
+                const frameBody = JSON.stringify({ imageFrameInformation: { imageFrameId: frameId } });
+                
+                let frameHeaders = {
+                    'Content-Type': 'application/json',
+                    'Host': `medical-imaging.${region}.amazonaws.com`
+                };
+                
+                frameHeaders = await signRequest('POST', frameUrl, frameHeaders, frameBody, awsCredentials, region, 'medical-imaging');
+                
+                const frameResponse = await fetch(frameUrl, {
+                    method: 'POST',
+                    headers: frameHeaders,
+                    body: frameBody
                 });
                 
-                const frameResponse = await medicalImagingClient.send(frameCommand);
+                if (!frameResponse.ok) {
+                    throw new Error(`Frame error: ${frameResponse.status}`);
+                }
                 
-                // Read the frame data
-                const frameBlob = frameResponse.imageFrameBlob;
-                const frameArrayBuffer = await new Response(frameBlob).arrayBuffer();
+                const frameArrayBuffer = await frameResponse.arrayBuffer();
                 const frameData = new Uint8Array(frameArrayBuffer);
                 
                 const latency = Math.round(performance.now() - startTime);
@@ -473,7 +590,7 @@
                 document.getElementById('latency').innerText = latency;
                 document.getElementById('frameSize').innerText = formatBytes(frameData.length);
                 
-                statusEl.innerText = `✅ Streaming from HealthImaging | Latency: ${latency}ms | Frame: ${formatBytes(frameData.length)}`;
+                statusEl.innerText = `✅ Direct streaming from HealthImaging | Latency: ${latency}ms | Frame: ${formatBytes(frameData.length)}`;
                 
             } catch (error) {
                 console.error('HealthImaging error:', error);
@@ -481,7 +598,7 @@
             } finally {
                 document.getElementById('streamBtn').disabled = false;
             }
-        };
+        }
         
         function extractFirstFrameId(metadata) {
             try {
@@ -501,41 +618,33 @@
         }
         
         function displayFrame(frameData, viewerEl) {
-            // HTJ2K data - for now display as raw data indicator
-            // In production, you'd use OpenJPH or similar decoder
-            
-            // Create a canvas to show we received data
             viewerEl.innerHTML = '';
+            viewerEl.style.position = 'relative';
             
             const canvas = document.createElement('canvas');
             canvas.width = 512;
             canvas.height = 512;
             const ctx = canvas.getContext('2d');
             
-            // For demo: visualize the raw HTJ2K data as a pattern
-            // Real implementation would decode HTJ2K to pixels
+            // HTJ2K visualization - in production use OpenJPH decoder
             const imageData = ctx.createImageData(512, 512);
             
             for (let i = 0; i < imageData.data.length; i += 4) {
                 const dataIndex = (i / 4) % frameData.length;
                 const value = frameData[dataIndex];
-                imageData.data[i] = value;     // R
-                imageData.data[i + 1] = value; // G
-                imageData.data[i + 2] = value; // B
-                imageData.data[i + 3] = 255;   // A
+                imageData.data[i] = value;
+                imageData.data[i + 1] = value;
+                imageData.data[i + 2] = value;
+                imageData.data[i + 3] = 255;
             }
             
             ctx.putImageData(imageData, 0, 0);
             viewerEl.appendChild(canvas);
             
-            // Add source indicator
+            // Source indicator
             const indicator = document.createElement('div');
             indicator.className = 'source-indicator healthimaging';
-            indicator.innerText = 'HealthImaging';
-            indicator.style.position = 'absolute';
-            indicator.style.top = '10px';
-            indicator.style.right = '10px';
-            viewerEl.style.position = 'relative';
+            indicator.innerText = '🏥 HealthImaging';
             viewerEl.appendChild(indicator);
         }
         
@@ -545,7 +654,7 @@
             return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
         }
         
-        window.verifyImage = async function() {
+        async function verifyImage() {
             const statusEl = document.getElementById('status');
             const config = window.APP_CONFIG || {};
             const imageSetId = document.getElementById('imageSetId').value || selectedImageSetId;
@@ -564,17 +673,13 @@
                     body: JSON.stringify({ imageSetId: imageSetId, action: 'VERIFY' })
                 });
                 
-                if (!response.ok) {
-                    throw new Error(`API returned ${response.status}`);
-                }
+                if (!response.ok) throw new Error(`API returned ${response.status}`);
                 
-                const data = await response.json();
                 statusEl.innerText = '✅ Pipeline Triggered! Check SageMaker Console.';
-                
             } catch (error) {
                 statusEl.innerText = '❌ Pipeline trigger failed: ' + error.message;
             }
-        };
+        }
     </script>
 </body>
 </html>

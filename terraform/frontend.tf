@@ -218,7 +218,9 @@ resource "aws_iam_role_policy" "frontend_lambda_policy" {
         Action = [
           "medical-imaging:GetImageSet",
           "medical-imaging:GetImageFrame",
-          "medical-imaging:GetImageSetMetadata"
+          "medical-imaging:GetImageSetMetadata",
+          "medical-imaging:SearchImageSets",
+          "medical-imaging:ListImageSetVersions"
         ]
         Resource = "*"
       },

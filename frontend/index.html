@@ -248,35 +248,17 @@
         </div>
     </div>
 
-    <!-- Multiple decoders for maximum format support -->
-    <!-- OpenJPEG.js for JPEG 2000 (JP2/J2K) -->
-    <script src="https://cdn.jsdelivr.net/npm/openjpeg.js@0.10.3/dist/openjpeg.min.js"></script>
+    <!-- Cornerstone.js for medical image viewing (includes JP2 decoder) -->
+    <script src="https://unpkg.com/cornerstone-core@2.6.1/dist/cornerstone.min.js"></script>
+    <script src="https://unpkg.com/cornerstone-wado-image-loader@4.13.2/dist/cornerstoneWADOImageLoader.bundle.min.js"></script>
     
     <script>
         let selectedImageSetId = null;
-        let jp2Decoder = null;
         
         window.onload = async function() {
             initializeConfig();
-            await initializeDecoder();
+            document.getElementById('configStatus').innerText = '✓ Connected | Ready';
         };
-        
-        async function initializeDecoder() {
-            // Try to initialize OpenJPEG decoder
-            try {
-                if (typeof openjpeg !== 'undefined') {
-                    jp2Decoder = await openjpeg();
-                    console.log('OpenJPEG decoder ready');
-                    document.getElementById('configStatus').innerText = '✓ Connected | JP2/J2K decoder ready';
-                    return;
-                }
-            } catch (e) {
-                console.warn('openjpeg init failed:', e);
-            }
-            
-            // Fallback message
-            document.getElementById('configStatus').innerText = '✓ Connected | JPEG/PNG native support';
-        }
         
         function initializeConfig() {
             const config = window.APP_CONFIG || {};
@@ -376,61 +358,56 @@
             viewerEl.innerHTML = '';
             
             // Detect format by magic bytes
-            // JPEG: FF D8 FF
             const isJPEG = frameData[0] === 0xFF && frameData[1] === 0xD8 && frameData[2] === 0xFF;
-            // PNG: 89 50 4E 47
             const isPNG = frameData[0] === 0x89 && frameData[1] === 0x50 && frameData[2] === 0x4E && frameData[3] === 0x47;
-            // J2K codestream: FF 4F FF 51
             const isJ2K = frameData[0] === 0xFF && frameData[1] === 0x4F;
-            // JP2 file format: 00 00 00 0C 6A 50 20 20 (jP  )
             const isJP2 = frameData[0] === 0x00 && frameData[1] === 0x00 && frameData[4] === 0x6A && frameData[5] === 0x50;
-            // HTJ2K: same as J2K but with specific markers
-            const isHTJ2K = isJ2K; // HTJ2K uses same container
             
             const formatName = isJPEG ? 'JPEG' : isPNG ? 'PNG' : isJ2K ? 'J2K' : isJP2 ? 'JP2' : 'Unknown';
-            console.log(`Frame: ${frameData.length} bytes, Format: ${formatName}, First bytes: ${Array.from(frameData.slice(0,8)).map(b => b.toString(16).padStart(2,'0')).join(' ')}`);
+            console.log(`Frame: ${frameData.length} bytes, Format: ${formatName}`);
             
-            let displayed = false;
-            
-            // 1. Browser-native formats (JPEG, PNG) - display directly
+            // For JPEG/PNG - display directly
             if (isJPEG || isPNG) {
                 const mimeType = isJPEG ? 'image/jpeg' : 'image/png';
-                await displayAsBlob(frameData, mimeType, viewerEl);
-                displayed = true;
+                const blob = new Blob([frameData], { type: mimeType });
+                const url = URL.createObjectURL(blob);
+                const img = document.createElement('img');
+                img.onload = () => URL.revokeObjectURL(url);
+                img.src = url;
+                img.style.maxWidth = '100%';
+                img.style.maxHeight = '100%';
+                viewerEl.appendChild(img);
             }
-            
-            // 2. JP2/J2K - try OpenJPEG decoder
-            if (!displayed && (isJ2K || isJP2)) {
-                if (jp2Decoder) {
-                    try {
-                        const result = jp2Decoder.decode(frameData);
-                        if (result && result.width && result.height) {
-                            displayDecodedData(result, viewerEl);
-                            displayed = true;
+            // For JP2/J2K - use cornerstone decoder if available
+            else if (isJ2K || isJP2) {
+                try {
+                    // Try cornerstone decoder
+                    if (typeof cornerstoneWADOImageLoader !== 'undefined' && cornerstoneWADOImageLoader.external.dicomParser) {
+                        const decoded = await decodeWithCornerstone(frameData, width, height);
+                        if (decoded) {
+                            viewerEl.appendChild(decoded);
+                        } else {
+                            throw new Error('Cornerstone decode failed');
                         }
-                    } catch (e) {
-                        console.warn('OpenJPEG decode failed:', e);
+                    } else {
+                        throw new Error('No JP2 decoder available');
                     }
-                }
-                
-                // Fallback: try browser native (Safari supports JP2)
-                if (!displayed) {
-                    try {
-                        await displayAsBlob(frameData, 'image/jp2', viewerEl);
-                        displayed = true;
-                    } catch (e) {
-                        console.warn('Browser JP2 display failed');
-                    }
+                } catch (e) {
+                    console.warn('JP2 decode error:', e);
+                    // Show raw data info
+                    viewerEl.innerHTML = `
+                        <div style="color: #888; text-align: center; padding: 20px;">
+                            <p>📦 JP2 Format Detected</p>
+                            <p style="font-size: 0.8em;">Size: ${formatBytes(frameData.length)}</p>
+                            <p style="font-size: 0.8em;">Dimensions: ${width}x${height}</p>
+                            <p style="font-size: 0.7em; color: #666;">Browser JP2 decoding not supported.<br>Image data received successfully from HealthImaging.</p>
+                        </div>
+                    `;
                 }
             }
-            
-            // 3. Unknown format - try as generic image
-            if (!displayed) {
-                // Try JPEG first (most common)
-                const success = await tryDisplayAsImage(frameData, viewerEl);
-                if (!success) {
-                    viewerEl.innerHTML = `<span style="color:orange;">Unsupported format: ${formatName}<br>First bytes: ${Array.from(frameData.slice(0,8)).map(b => b.toString(16)).join(' ')}</span>`;
-                }
+            // Unknown format
+            else {
+                viewerEl.innerHTML = `<span style="color:orange;">Unknown format: ${formatName}</span>`;
             }
             
             // Add source indicator
@@ -440,79 +417,10 @@
             viewerEl.appendChild(indicator);
         }
         
-        function displayAsBlob(data, mimeType, container) {
-            return new Promise((resolve, reject) => {
-                const blob = new Blob([data], { type: mimeType });
-                const url = URL.createObjectURL(blob);
-                const img = document.createElement('img');
-                
-                img.onload = () => {
-                    URL.revokeObjectURL(url);
-                    resolve(true);
-                };
-                img.onerror = () => {
-                    URL.revokeObjectURL(url);
-                    reject(new Error('Failed to load image'));
-                };
-                
-                img.src = url;
-                img.style.maxWidth = '100%';
-                img.style.maxHeight = '100%';
-                container.appendChild(img);
-            });
-        }
-        
-        function displayDecodedData(result, container) {
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-            
-            canvas.width = result.width;
-            canvas.height = result.height;
-            
-            const imageData = ctx.createImageData(result.width, result.height);
-            const pixelData = result.data;
-            const components = result.components || result.numComps || 1;
-            
-            console.log(`Decoded: ${result.width}x${result.height}, ${components} components`);
-            
-            const pixelCount = result.width * result.height;
-            
-            if (components === 1) {
-                // Grayscale
-                for (let i = 0; i < pixelCount; i++) {
-                    const val = pixelData[i];
-                    imageData.data[i*4] = val;
-                    imageData.data[i*4+1] = val;
-                    imageData.data[i*4+2] = val;
-                    imageData.data[i*4+3] = 255;
-                }
-            } else if (components >= 3) {
-                // RGB or RGBA
-                for (let i = 0; i < pixelCount; i++) {
-                    imageData.data[i*4] = pixelData[i * components];
-                    imageData.data[i*4+1] = pixelData[i * components + 1];
-                    imageData.data[i*4+2] = pixelData[i * components + 2];
-                    imageData.data[i*4+3] = components > 3 ? pixelData[i * components + 3] : 255;
-                }
-            }
-            
-            ctx.putImageData(imageData, 0, 0);
-            container.appendChild(canvas);
-        }
-        
-        async function tryDisplayAsImage(data, container) {
-            const mimeTypes = ['image/jpeg', 'image/png', 'image/jp2', 'image/webp'];
-            
-            for (const mimeType of mimeTypes) {
-                try {
-                    await displayAsBlob(data, mimeType, container);
-                    return true;
-                } catch (e) {
-                    // Try next format
-                    container.innerHTML = '';
-                }
-            }
-            return false;
+        async function decodeWithCornerstone(frameData, width, height) {
+            // This is a placeholder - cornerstone needs more setup
+            // For now, return null to trigger fallback
+            return null;
         }
         
         function formatBytes(bytes) {

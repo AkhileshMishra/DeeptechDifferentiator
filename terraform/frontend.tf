@@ -264,12 +264,7 @@ resource "aws_lambda_function" "get_presigned_url" {
   source_code_hash = data.archive_file.get_presigned_url_zip.output_base64sha256
   runtime          = "python3.11"
   timeout          = 30
-  memory_size      = 512
-  
-  # Add Pillow layer for JP2 support (Klayers provides pre-built layers)
-  layers = [
-    "arn:aws:lambda:${var.aws_region}:770693421928:layer:Klayers-p311-Pillow:5"
-  ]
+  memory_size      = 256
   
   environment {
     variables = {

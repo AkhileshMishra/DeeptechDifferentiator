@@ -370,99 +370,78 @@
         async function displayFrame(frameData, viewerEl, width, height) {
             viewerEl.innerHTML = '';
             
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
+            // Detect format by magic bytes
+            const isJPEG = frameData[0] === 0xFF && frameData[1] === 0xD8;
+            const isPNG = frameData[0] === 0x89 && frameData[1] === 0x50;
+            const isJ2K = frameData[0] === 0xFF && frameData[1] === 0x4F;
             
-            let decoded = false;
+            console.log(`Frame: ${frameData.length} bytes, JPEG:${isJPEG}, PNG:${isPNG}, J2K:${isJ2K}`);
             
-            // Try OpenJPH decoder
-            if (decoder && decoder.HTJ2KDecoder) {
+            // Browser-native formats (JPEG, PNG) - display directly
+            if (isJPEG || isPNG) {
+                const mimeType = isJPEG ? 'image/jpeg' : 'image/png';
+                const blob = new Blob([frameData], { type: mimeType });
+                const url = URL.createObjectURL(blob);
+                
+                const img = document.createElement('img');
+                img.onload = () => URL.revokeObjectURL(url);
+                img.src = url;
+                img.style.maxWidth = '100%';
+                img.style.maxHeight = '100%';
+                viewerEl.appendChild(img);
+            } 
+            // HTJ2K/J2K - needs decoder
+            else if (isJ2K && decoder && decoder.HTJ2KDecoder) {
                 try {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    
                     const htj2kDecoder = new decoder.HTJ2KDecoder();
                     const encodedBuffer = htj2kDecoder.getEncodedBuffer(frameData.length);
                     encodedBuffer.set(frameData);
-                    
                     htj2kDecoder.decode();
                     
-                    const frameInfo = htj2kDecoder.getFrameInfo();
-                    width = frameInfo.width;
-                    height = frameInfo.height;
-                    const bitsPerSample = frameInfo.bitsPerSample;
-                    const componentCount = frameInfo.componentCount;
+                    const info = htj2kDecoder.getFrameInfo();
+                    canvas.width = info.width;
+                    canvas.height = info.height;
                     
-                    console.log(`Decoded: ${width}x${height}, ${componentCount} components, ${bitsPerSample} bits`);
+                    const decoded = htj2kDecoder.getDecodedBuffer();
+                    const imageData = ctx.createImageData(info.width, info.height);
+                    const maxVal = (1 << info.bitsPerSample) - 1;
                     
-                    canvas.width = width;
-                    canvas.height = height;
-                    
-                    const decodedBuffer = htj2kDecoder.getDecodedBuffer();
-                    const imageData = ctx.createImageData(width, height);
-                    
-                    const bytesPerPixel = bitsPerSample > 8 ? 2 : 1;
-                    const maxVal = (1 << bitsPerSample) - 1;
-                    
-                    for (let i = 0; i < width * height; i++) {
-                        let pixelValue;
-                        if (bytesPerPixel === 2) {
-                            pixelValue = decodedBuffer[i * 2] | (decodedBuffer[i * 2 + 1] << 8);
-                        } else {
-                            pixelValue = decodedBuffer[i];
-                        }
-                        
-                        // Normalize to 0-255
-                        const normalized = Math.round((pixelValue / maxVal) * 255);
-                        
-                        imageData.data[i * 4] = normalized;
-                        imageData.data[i * 4 + 1] = normalized;
-                        imageData.data[i * 4 + 2] = normalized;
-                        imageData.data[i * 4 + 3] = 255;
+                    for (let i = 0; i < info.width * info.height; i++) {
+                        const val = info.bitsPerSample > 8 
+                            ? (decoded[i*2] | (decoded[i*2+1] << 8)) 
+                            : decoded[i];
+                        const norm = Math.round((val / maxVal) * 255);
+                        imageData.data[i*4] = imageData.data[i*4+1] = imageData.data[i*4+2] = norm;
+                        imageData.data[i*4+3] = 255;
                     }
                     
                     ctx.putImageData(imageData, 0, 0);
                     htj2kDecoder.delete();
-                    decoded = true;
+                    viewerEl.appendChild(canvas);
                 } catch (e) {
-                    console.warn('HTJ2K decode failed:', e);
+                    console.error('J2K decode error:', e);
+                    viewerEl.innerHTML = '<span style="color:red;">J2K decode failed</span>';
                 }
             }
-            
-            // Fallback: raw byte visualization
-            if (!decoded) {
-                console.log('Using fallback visualization');
-                canvas.width = width;
-                canvas.height = height;
-                const imageData = ctx.createImageData(width, height);
-                
-                // Assume 16-bit grayscale, little-endian
-                const pixelCount = width * height;
-                const bytesPerPixel = Math.floor(frameData.length / pixelCount);
-                
-                if (bytesPerPixel >= 2) {
-                    // 16-bit data
-                    for (let i = 0; i < pixelCount && i * 2 + 1 < frameData.length; i++) {
-                        const val = frameData[i * 2] | (frameData[i * 2 + 1] << 8);
-                        const normalized = Math.round((val / 65535) * 255);
-                        imageData.data[i * 4] = normalized;
-                        imageData.data[i * 4 + 1] = normalized;
-                        imageData.data[i * 4 + 2] = normalized;
-                        imageData.data[i * 4 + 3] = 255;
-                    }
-                } else {
-                    // 8-bit or compressed data - show pattern
-                    for (let i = 0; i < imageData.data.length; i += 4) {
-                        const idx = (i / 4) % frameData.length;
-                        imageData.data[i] = frameData[idx];
-                        imageData.data[i + 1] = frameData[idx];
-                        imageData.data[i + 2] = frameData[idx];
-                        imageData.data[i + 3] = 255;
-                    }
-                }
-                ctx.putImageData(imageData, 0, 0);
+            // Unknown - try as image blob anyway
+            else {
+                const blob = new Blob([frameData], { type: 'image/jpeg' });
+                const url = URL.createObjectURL(blob);
+                const img = document.createElement('img');
+                img.onerror = () => {
+                    viewerEl.innerHTML = '<span style="color:orange;">Unsupported format</span>';
+                };
+                img.onload = () => URL.revokeObjectURL(url);
+                img.src = url;
+                img.style.maxWidth = '100%';
+                img.style.maxHeight = '100%';
+                viewerEl.appendChild(img);
             }
             
-            viewerEl.appendChild(canvas);
-            
-            // Add source indicator
+            // Source indicator
             const indicator = document.createElement('div');
             indicator.className = 'source-indicator healthimaging';
             indicator.innerText = '🏥 HealthImaging';

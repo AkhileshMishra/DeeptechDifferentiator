@@ -248,12 +248,12 @@
         </div>
     </div>
 
-    <!-- OpenJPEG WASM decoder for JP2/J2K/HTJ2K -->
-    <script src="https://unpkg.com/@cornerstonejs/codec-openjpeg@1.2.3/dist/openjpegwasm.js"></script>
+    <!-- OpenJPEG.js decoder for JP2/J2K -->
+    <script src="https://cdn.jsdelivr.net/npm/openjpeg.js@0.10.3/dist/openjpeg.min.js"></script>
     
     <script>
         let selectedImageSetId = null;
-        let openjpegModule = null;
+        let openjpegDecoder = null;
         
         window.onload = async function() {
             initializeConfig();
@@ -262,13 +262,13 @@
         
         async function initializeDecoder() {
             try {
-                // Initialize OpenJPEG WASM decoder from cornerstone
-                if (typeof OpenJPEGWASM !== 'undefined') {
-                    openjpegModule = await OpenJPEGWASM;
-                    console.log('OpenJPEG WASM decoder initialized');
+                // Initialize OpenJPEG.js decoder
+                if (typeof OpenJPEG !== 'undefined') {
+                    openjpegDecoder = await OpenJPEG();
+                    console.log('OpenJPEG.js decoder initialized:', openjpegDecoder);
                     document.getElementById('configStatus').innerText = '✓ Connected | JP2/HTJ2K decoder ready';
                 } else {
-                    console.warn('OpenJPEGWASM not available');
+                    console.warn('OpenJPEG not available');
                     document.getElementById('configStatus').innerText = '✓ Connected | JPEG/PNG only';
                 }
             } catch (e) {
@@ -399,84 +399,56 @@
                 return;
             }
             
-            // For JP2/J2K/HTJ2K - use OpenJPEG WASM decoder
+            // For JP2/J2K/HTJ2K - use OpenJPEG.js decoder
             if (isJ2K || isJP2) {
                 try {
-                    if (openjpegModule) {
-                        console.log('Decoding with OpenJPEG WASM...');
+                    if (openjpegDecoder && openjpegDecoder.decode) {
+                        console.log('Decoding with OpenJPEG.js...');
                         
-                        // Create decoder instance
-                        const decoder = new openjpegModule.J2KDecoder();
+                        // Decode using openjpeg.js
+                        const result = openjpegDecoder.decode(frameData);
                         
-                        // Get encoded buffer and copy data
-                        const encodedBuffer = decoder.getEncodedBuffer(frameData.length);
-                        encodedBuffer.set(frameData);
-                        
-                        // Decode
-                        decoder.decode();
-                        
-                        // Get decoded data and frame info
-                        const decodedBuffer = decoder.getDecodedBuffer();
-                        const frameInfo = decoder.getFrameInfo();
-                        
-                        const decodedWidth = frameInfo.width || width;
-                        const decodedHeight = frameInfo.height || height;
-                        const numComponents = frameInfo.componentCount || 1;
-                        const bitsPerSample = frameInfo.bitsPerSample || 8;
-                        
-                        console.log(`Decoded: ${decodedWidth}x${decodedHeight}, ${numComponents} components, ${bitsPerSample} bits`);
-                        
-                        // Create canvas and render
-                        const canvas = document.createElement('canvas');
-                        canvas.width = decodedWidth;
-                        canvas.height = decodedHeight;
-                        const ctx = canvas.getContext('2d');
-                        const imgData = ctx.createImageData(decodedWidth, decodedHeight);
-                        
-                        // Handle different bit depths and component counts
-                        const pixelCount = decodedWidth * decodedHeight;
-                        
-                        if (numComponents === 1) {
-                            // Grayscale
-                            if (bitsPerSample <= 8) {
+                        if (result && result.data && result.width && result.height) {
+                            console.log(`Decoded: ${result.width}x${result.height}, ${result.nbChannels} channels`);
+                            
+                            const canvas = document.createElement('canvas');
+                            canvas.width = result.width;
+                            canvas.height = result.height;
+                            const ctx = canvas.getContext('2d');
+                            const imgData = ctx.createImageData(result.width, result.height);
+                            
+                            const pixelCount = result.width * result.height;
+                            const numComponents = result.nbChannels || 1;
+                            
+                            if (numComponents === 1) {
+                                // Grayscale
                                 for (let i = 0; i < pixelCount; i++) {
-                                    const val = decodedBuffer[i];
+                                    const val = result.data[i];
                                     imgData.data[i * 4] = val;
                                     imgData.data[i * 4 + 1] = val;
                                     imgData.data[i * 4 + 2] = val;
+                                    imgData.data[i * 4 + 3] = 255;
+                                }
+                            } else if (numComponents === 3) {
+                                // RGB
+                                for (let i = 0; i < pixelCount; i++) {
+                                    imgData.data[i * 4] = result.data[i * 3];
+                                    imgData.data[i * 4 + 1] = result.data[i * 3 + 1];
+                                    imgData.data[i * 4 + 2] = result.data[i * 3 + 2];
                                     imgData.data[i * 4 + 3] = 255;
                                 }
                             } else {
-                                // 16-bit - scale to 8-bit
-                                const view = new Uint16Array(decodedBuffer.buffer);
-                                const maxVal = (1 << bitsPerSample) - 1;
-                                for (let i = 0; i < pixelCount; i++) {
-                                    const val = Math.round((view[i] / maxVal) * 255);
-                                    imgData.data[i * 4] = val;
-                                    imgData.data[i * 4 + 1] = val;
-                                    imgData.data[i * 4 + 2] = val;
-                                    imgData.data[i * 4 + 3] = 255;
-                                }
+                                // RGBA
+                                imgData.data.set(result.data.slice(0, imgData.data.length));
                             }
-                        } else if (numComponents === 3) {
-                            // RGB
-                            for (let i = 0; i < pixelCount; i++) {
-                                imgData.data[i * 4] = decodedBuffer[i * 3];
-                                imgData.data[i * 4 + 1] = decodedBuffer[i * 3 + 1];
-                                imgData.data[i * 4 + 2] = decodedBuffer[i * 3 + 2];
-                                imgData.data[i * 4 + 3] = 255;
-                            }
-                        } else {
-                            // RGBA or other
-                            imgData.data.set(decodedBuffer.slice(0, imgData.data.length));
+                            
+                            ctx.putImageData(imgData, 0, 0);
+                            viewerEl.appendChild(canvas);
+                            addSourceIndicator(viewerEl);
+                            return;
                         }
-                        
-                        ctx.putImageData(imgData, 0, 0);
-                        viewerEl.appendChild(canvas);
-                        addSourceIndicator(viewerEl);
-                        return;
                     }
-                    throw new Error('OpenJPEG decoder not available');
+                    throw new Error('Decoder not available or decode failed');
                 } catch (e) {
                     console.warn('JP2/J2K decode error:', e);
                     // Fallback: show info about the data

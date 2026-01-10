@@ -8,6 +8,9 @@
     <!-- Load configuration first -->
     <script src="config.js"></script>
     
+    <!-- OpenJPH decoder for HTJ2K (JPEG 2000 High Throughput) -->
+    <script src="https://cdn.jsdelivr.net/npm/openjphjs@0.10.3/dist/openjphjs.min.js"></script>
+    
     <style>
         * { box-sizing: border-box; }
         body { 
@@ -262,11 +265,27 @@
     <script>
         // Global state
         let selectedImageSetId = null;
+        let openjphDecoder = null;
         
         // Initialize on page load
-        window.onload = function() {
+        window.onload = async function() {
             initializeConfig();
+            await initializeDecoder();
         };
+        
+        async function initializeDecoder() {
+            try {
+                // Initialize OpenJPH decoder
+                if (typeof OpenJPH !== 'undefined') {
+                    openjphDecoder = await OpenJPH();
+                    console.log('OpenJPH decoder initialized');
+                } else {
+                    console.warn('OpenJPH not available, will use fallback rendering');
+                }
+            } catch (e) {
+                console.warn('Failed to initialize OpenJPH:', e);
+            }
+        }
         
         function initializeConfig() {
             const config = window.APP_CONFIG || {};
@@ -388,28 +407,88 @@
             }
         }
         
-        function displayFrame(frameData, viewerEl) {
+        async function displayFrame(frameData, viewerEl) {
             viewerEl.innerHTML = '';
             viewerEl.style.position = 'relative';
             
             const canvas = document.createElement('canvas');
-            canvas.width = 512;
-            canvas.height = 512;
             const ctx = canvas.getContext('2d');
             
-            // HTJ2K visualization - in production use OpenJPH decoder
-            const imageData = ctx.createImageData(512, 512);
-            
-            for (let i = 0; i < imageData.data.length; i += 4) {
-                const dataIndex = (i / 4) % frameData.length;
-                const value = frameData[dataIndex];
-                imageData.data[i] = value;
-                imageData.data[i + 1] = value;
-                imageData.data[i + 2] = value;
-                imageData.data[i + 3] = 255;
+            try {
+                // Try to decode HTJ2K using OpenJPH
+                if (openjphDecoder) {
+                    const decoder = new openjphDecoder.HTJ2KDecoder();
+                    const encodedBuffer = decoder.getEncodedBuffer(frameData.length);
+                    encodedBuffer.set(frameData);
+                    
+                    decoder.decode();
+                    
+                    const frameInfo = decoder.getFrameInfo();
+                    const width = frameInfo.width;
+                    const height = frameInfo.height;
+                    const numComponents = frameInfo.componentCount;
+                    const bitsPerSample = frameInfo.bitsPerSample;
+                    
+                    console.log(`Decoded: ${width}x${height}, ${numComponents} components, ${bitsPerSample} bits`);
+                    
+                    canvas.width = width;
+                    canvas.height = height;
+                    
+                    const decodedBuffer = decoder.getDecodedBuffer();
+                    const imageData = ctx.createImageData(width, height);
+                    
+                    // Handle different bit depths and component counts
+                    const maxValue = (1 << bitsPerSample) - 1;
+                    
+                    if (numComponents === 1) {
+                        // Grayscale
+                        for (let i = 0; i < width * height; i++) {
+                            let value;
+                            if (bitsPerSample > 8) {
+                                // 16-bit: read two bytes
+                                value = (decodedBuffer[i * 2 + 1] << 8) | decodedBuffer[i * 2];
+                                value = Math.round((value / maxValue) * 255);
+                            } else {
+                                value = decodedBuffer[i];
+                            }
+                            imageData.data[i * 4] = value;
+                            imageData.data[i * 4 + 1] = value;
+                            imageData.data[i * 4 + 2] = value;
+                            imageData.data[i * 4 + 3] = 255;
+                        }
+                    } else if (numComponents >= 3) {
+                        // RGB
+                        for (let i = 0; i < width * height; i++) {
+                            imageData.data[i * 4] = decodedBuffer[i * numComponents];
+                            imageData.data[i * 4 + 1] = decodedBuffer[i * numComponents + 1];
+                            imageData.data[i * 4 + 2] = decodedBuffer[i * numComponents + 2];
+                            imageData.data[i * 4 + 3] = 255;
+                        }
+                    }
+                    
+                    ctx.putImageData(imageData, 0, 0);
+                    decoder.delete();
+                } else {
+                    throw new Error('Decoder not available');
+                }
+            } catch (e) {
+                console.warn('HTJ2K decode failed, using fallback:', e);
+                // Fallback: display raw data visualization
+                canvas.width = 512;
+                canvas.height = 512;
+                const imageData = ctx.createImageData(512, 512);
+                
+                for (let i = 0; i < imageData.data.length; i += 4) {
+                    const dataIndex = (i / 4) % frameData.length;
+                    const value = frameData[dataIndex];
+                    imageData.data[i] = value;
+                    imageData.data[i + 1] = value;
+                    imageData.data[i + 2] = value;
+                    imageData.data[i + 3] = 255;
+                }
+                ctx.putImageData(imageData, 0, 0);
             }
             
-            ctx.putImageData(imageData, 0, 0);
             viewerEl.appendChild(canvas);
             
             // Source indicator

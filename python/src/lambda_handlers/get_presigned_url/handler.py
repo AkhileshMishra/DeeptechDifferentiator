@@ -2,6 +2,7 @@ import json
 import boto3
 import os
 import base64
+import gzip
 from botocore.exceptions import ClientError
 
 s3 = boto3.client('s3')
@@ -85,8 +86,14 @@ def get_image_frame(datastore_id, image_set_id):
             imageSetId=image_set_id
         )
         
+        # Metadata is gzip compressed
         metadata_blob = metadata_response['imageSetMetadataBlob'].read()
-        metadata = json.loads(metadata_blob)
+        
+        # Decompress if gzipped (starts with 0x1f 0x8b)
+        if metadata_blob[:2] == b'\x1f\x8b':
+            metadata_blob = gzip.decompress(metadata_blob)
+        
+        metadata = json.loads(metadata_blob.decode('utf-8'))
         
         # Extract first frame ID
         frame_id = extract_first_frame_id(metadata)

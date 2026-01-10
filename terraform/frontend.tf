@@ -227,6 +227,18 @@ resource "aws_iam_role_policy" "frontend_lambda_policy" {
       {
         Effect = "Allow"
         Action = [
+          "kms:Decrypt",
+          "kms:GenerateDataKey",
+          "kms:DescribeKey"
+        ]
+        Resource = [
+          module.security.s3_kms_key_arn,
+          module.security.sagemaker_kms_key_arn
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
           "logs:CreateLogGroup",
           "logs:CreateLogStream",
           "logs:PutLogEvents"

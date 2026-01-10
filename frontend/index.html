@@ -8,9 +8,6 @@
     <!-- Load configuration first -->
     <script src="config.js"></script>
     
-    <!-- AWS SDK v3 Browser Bundle -->
-    <script src="https://unpkg.com/@aws-sdk/client-cognito-identity@3.450.0/dist-cjs/index.js"></script>
-    
     <style>
         * { box-sizing: border-box; }
         body { 
@@ -207,7 +204,7 @@
     <div class="header">
         <h1>DeepTech Triage</h1>
         <p class="subtitle">AWS HealthImaging + HTJ2K Direct Streaming</p>
-        <span class="badge streaming" id="streamingBadge">Direct API Access</span>
+        <span class="badge streaming" id="streamingBadge">Lambda Proxy → HealthImaging</span>
     </div>
     
     <div class="config-panel">
@@ -217,7 +214,7 @@
         <label>HealthImaging Datastore ID:</label>
         <input type="text" id="datastoreId" readonly />
         
-        <label>Cognito Identity Pool:</label>
+        <label>Access Method:</label>
         <input type="text" id="identityPoolId" readonly />
         
         <div id="configStatus" class="config-status"></div>
@@ -264,13 +261,11 @@
 
     <script>
         // Global state
-        let awsCredentials = null;
         let selectedImageSetId = null;
         
         // Initialize on page load
-        window.onload = async function() {
+        window.onload = function() {
             initializeConfig();
-            await initializeCognito();
         };
         
         function initializeConfig() {
@@ -278,184 +273,23 @@
             
             document.getElementById('awsRegion').value = config.AWS_REGION || 'us-east-1';
             document.getElementById('datastoreId').value = config.DATASTORE_ID || '';
-            document.getElementById('identityPoolId').value = config.COGNITO?.IDENTITY_POOL_ID || '';
+            document.getElementById('identityPoolId').value = 'Lambda Proxy (no browser credentials needed)';
             
-            if (config.COGNITO?.IDENTITY_POOL_ID) {
-                document.getElementById('configStatus').innerText = '✓ Cognito configured';
-                document.getElementById('configStatus').className = 'config-status';
-            } else {
-                document.getElementById('configStatus').innerText = '⚠ Cognito not configured';
-                document.getElementById('configStatus').className = 'config-status warning';
-            }
+            document.getElementById('configStatus').innerText = '✓ Using Lambda proxy for HealthImaging access';
+            document.getElementById('configStatus').className = 'config-status';
         }
         
-        async function initializeCognito() {
-            const config = window.APP_CONFIG || {};
-            const region = config.AWS_REGION || 'us-east-1';
-            const identityPoolId = config.COGNITO?.IDENTITY_POOL_ID;
-            
-            if (!identityPoolId) {
-                console.warn('No Identity Pool ID configured');
-                return;
-            }
-            
-            try {
-                // Get credentials from Cognito Identity Pool (unauthenticated)
-                const getIdResponse = await fetch(
-                    `https://cognito-identity.${region}.amazonaws.com/`,
-                    {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/x-amz-json-1.1',
-                            'X-Amz-Target': 'AWSCognitoIdentityService.GetId'
-                        },
-                        body: JSON.stringify({ IdentityPoolId: identityPoolId })
-                    }
-                );
-                
-                const idData = await getIdResponse.json();
-                
-                if (idData.IdentityId) {
-                    // Get credentials for this identity
-                    const credsResponse = await fetch(
-                        `https://cognito-identity.${region}.amazonaws.com/`,
-                        {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/x-amz-json-1.1',
-                                'X-Amz-Target': 'AWSCognitoIdentityService.GetCredentialsForIdentity'
-                            },
-                            body: JSON.stringify({ IdentityId: idData.IdentityId })
-                        }
-                    );
-                    
-                    const credsData = await credsResponse.json();
-                    
-                    if (credsData.Credentials) {
-                        awsCredentials = {
-                            accessKeyId: credsData.Credentials.AccessKeyId,
-                            secretAccessKey: credsData.Credentials.SecretKey,
-                            sessionToken: credsData.Credentials.SessionToken,
-                            expiration: credsData.Credentials.Expiration
-                        };
-                        
-                        console.log('Cognito credentials obtained');
-                        document.getElementById('configStatus').innerText = '✓ AWS credentials ready for direct streaming';
-                        document.getElementById('configStatus').className = 'config-status';
-                    }
-                }
-            } catch (error) {
-                console.error('Failed to get Cognito credentials:', error);
-                document.getElementById('configStatus').innerText = '❌ Failed to get credentials: ' + error.message;
-                document.getElementById('configStatus').className = 'config-status error';
-            }
-        }
-        
-        // AWS Signature V4 signing
-        async function signRequest(method, url, headers, body, credentials, region, service) {
-            const encoder = new TextEncoder();
-            
-            const datetime = new Date().toISOString().replace(/[:-]|\.\d{3}/g, '');
-            const date = datetime.substr(0, 8);
-            
-            headers['x-amz-date'] = datetime;
-            if (credentials.sessionToken) {
-                headers['x-amz-security-token'] = credentials.sessionToken;
-            }
-            
-            const urlObj = new URL(url);
-            const canonicalUri = urlObj.pathname;
-            const canonicalQuerystring = urlObj.searchParams.toString();
-            
-            const signedHeaders = Object.keys(headers)
-                .map(k => k.toLowerCase())
-                .sort()
-                .join(';');
-            
-            const canonicalHeaders = Object.keys(headers)
-                .map(k => k.toLowerCase() + ':' + headers[k].trim())
-                .sort()
-                .join('\n') + '\n';
-            
-            const payloadHash = await sha256(body || '');
-            
-            const canonicalRequest = [
-                method,
-                canonicalUri,
-                canonicalQuerystring,
-                canonicalHeaders,
-                signedHeaders,
-                payloadHash
-            ].join('\n');
-            
-            const credentialScope = `${date}/${region}/${service}/aws4_request`;
-            const stringToSign = [
-                'AWS4-HMAC-SHA256',
-                datetime,
-                credentialScope,
-                await sha256(canonicalRequest)
-            ].join('\n');
-            
-            const kDate = await hmac('AWS4' + credentials.secretAccessKey, date);
-            const kRegion = await hmac(kDate, region);
-            const kService = await hmac(kRegion, service);
-            const kSigning = await hmac(kService, 'aws4_request');
-            const signature = await hmacHex(kSigning, stringToSign);
-            
-            headers['Authorization'] = `AWS4-HMAC-SHA256 Credential=${credentials.accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
-            
-            return headers;
-        }
-        
-        async function sha256(message) {
-            const msgBuffer = new TextEncoder().encode(message);
-            const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-            return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
-        }
-        
-        async function hmac(key, message) {
-            const keyBuffer = typeof key === 'string' ? new TextEncoder().encode(key) : key;
-            const msgBuffer = new TextEncoder().encode(message);
-            const cryptoKey = await crypto.subtle.importKey('raw', keyBuffer, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-            return await crypto.subtle.sign('HMAC', cryptoKey, msgBuffer);
-        }
-        
-        async function hmacHex(key, message) {
-            const result = await hmac(key, message);
-            return Array.from(new Uint8Array(result)).map(b => b.toString(16).padStart(2, '0')).join('');
-        }
-        
-        // HealthImaging API calls
+        // HealthImaging API calls via Lambda proxy (direct browser calls blocked by CORS)
         async function listImageSets() {
             const statusEl = document.getElementById('status');
             const listEl = document.getElementById('imageSetsList');
             const config = window.APP_CONFIG || {};
-            const region = config.AWS_REGION || 'us-east-1';
-            const datastoreId = config.DATASTORE_ID;
-            
-            if (!awsCredentials) {
-                statusEl.innerText = '❌ AWS credentials not available. Check Cognito configuration.';
-                return;
-            }
             
             statusEl.innerText = '🔄 Searching HealthImaging datastore...';
             
             try {
-                const url = `https://medical-imaging.${region}.amazonaws.com/datastore/${datastoreId}/searchImageSets`;
-                const body = JSON.stringify({ searchCriteria: {}, maxResults: 20 });
-                
-                let headers = {
-                    'Content-Type': 'application/json',
-                    'Host': `medical-imaging.${region}.amazonaws.com`
-                };
-                
-                headers = await signRequest('POST', url, headers, body, awsCredentials, region, 'medical-imaging');
-                
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers: headers,
-                    body: body
-                });
+                // Call Lambda proxy instead of direct HealthImaging API
+                const response = await fetch(`${config.API_ENDPOINT}/get-image-frame?action=list`);
                 
                 if (!response.ok) {
                     const errorText = await response.text();
@@ -463,7 +297,7 @@
                 }
                 
                 const data = await response.json();
-                const imageSets = data.imageSetsMetadataSummaries || [];
+                const imageSets = data.imageSets || [];
                 
                 listEl.style.display = 'block';
                 
@@ -480,7 +314,7 @@
                     </div>
                 `).join('');
                 
-                statusEl.innerText = `✅ Found ${imageSets.length} image set(s) in HealthImaging`;
+                statusEl.innerText = `✅ Found ${imageSets.length} image set(s) in HealthImaging (via Lambda proxy)`;
                 
             } catch (error) {
                 console.error('Error listing image sets:', error);
@@ -504,8 +338,6 @@
             const statusEl = document.getElementById('status');
             const viewerEl = document.getElementById('viewer');
             const config = window.APP_CONFIG || {};
-            const region = config.AWS_REGION || 'us-east-1';
-            const datastoreId = config.DATASTORE_ID;
             const imageSetId = document.getElementById('imageSetId').value || selectedImageSetId;
             
             if (!imageSetId) {
@@ -513,72 +345,27 @@
                 return;
             }
             
-            if (!awsCredentials) {
-                statusEl.innerText = '❌ AWS credentials not available';
-                return;
-            }
-            
             const startTime = performance.now();
-            statusEl.innerText = '🔄 Connecting to AWS HealthImaging...';
+            statusEl.innerText = '🔄 Streaming from AWS HealthImaging via Lambda...';
             document.getElementById('streamBtn').disabled = true;
             
             try {
-                // Step 1: Get metadata
-                statusEl.innerText = '🔄 Fetching image metadata...';
+                // Call Lambda proxy to get frame from HealthImaging
+                const response = await fetch(`${config.API_ENDPOINT}/get-image-frame?imageSetId=${encodeURIComponent(imageSetId)}`);
                 
-                const metadataUrl = `https://medical-imaging.${region}.amazonaws.com/datastore/${datastoreId}/imageSet/${imageSetId}/getImageSetMetadata`;
-                
-                let metadataHeaders = {
-                    'Host': `medical-imaging.${region}.amazonaws.com`
-                };
-                
-                metadataHeaders = await signRequest('POST', metadataUrl, metadataHeaders, '', awsCredentials, region, 'medical-imaging');
-                
-                const metadataResponse = await fetch(metadataUrl, {
-                    method: 'POST',
-                    headers: metadataHeaders
-                });
-                
-                if (!metadataResponse.ok) {
-                    throw new Error(`Metadata error: ${metadataResponse.status}`);
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`API returned ${response.status}: ${errorText}`);
                 }
                 
-                const metadataBlob = await metadataResponse.blob();
-                const metadataText = await metadataBlob.text();
-                const metadata = JSON.parse(metadataText);
+                const data = await response.json();
                 
-                // Extract first frame ID
-                const frameId = extractFirstFrameId(metadata);
-                if (!frameId) {
-                    throw new Error('No frames found in image set');
+                if (data.error) {
+                    throw new Error(data.error);
                 }
                 
-                console.log('Found frame ID:', frameId);
-                statusEl.innerText = '🔄 Streaming frame from HealthImaging...';
-                
-                // Step 2: Get image frame
-                const frameUrl = `https://medical-imaging.${region}.amazonaws.com/datastore/${datastoreId}/imageSet/${imageSetId}/getImageFrame`;
-                const frameBody = JSON.stringify({ imageFrameInformation: { imageFrameId: frameId } });
-                
-                let frameHeaders = {
-                    'Content-Type': 'application/json',
-                    'Host': `medical-imaging.${region}.amazonaws.com`
-                };
-                
-                frameHeaders = await signRequest('POST', frameUrl, frameHeaders, frameBody, awsCredentials, region, 'medical-imaging');
-                
-                const frameResponse = await fetch(frameUrl, {
-                    method: 'POST',
-                    headers: frameHeaders,
-                    body: frameBody
-                });
-                
-                if (!frameResponse.ok) {
-                    throw new Error(`Frame error: ${frameResponse.status}`);
-                }
-                
-                const frameArrayBuffer = await frameResponse.arrayBuffer();
-                const frameData = new Uint8Array(frameArrayBuffer);
+                // Decode base64 frame data
+                const frameData = Uint8Array.from(atob(data.data), c => c.charCodeAt(0));
                 
                 const latency = Math.round(performance.now() - startTime);
                 
@@ -586,11 +373,12 @@
                 displayFrame(frameData, viewerEl);
                 
                 // Update metrics
-                document.getElementById('source').innerText = 'HealthImaging';
+                document.getElementById('source').innerText = data.source === 'healthimaging' ? 'HealthImaging' : 'S3';
                 document.getElementById('latency').innerText = latency;
                 document.getElementById('frameSize').innerText = formatBytes(frameData.length);
                 
-                statusEl.innerText = `✅ Direct streaming from HealthImaging | Latency: ${latency}ms | Frame: ${formatBytes(frameData.length)}`;
+                const sourceLabel = data.source === 'healthimaging' ? '🏥 HealthImaging' : '📦 S3';
+                statusEl.innerText = `✅ Streamed from ${sourceLabel} | Latency: ${latency}ms | Frame: ${formatBytes(data.frameSize)}`;
                 
             } catch (error) {
                 console.error('HealthImaging error:', error);
@@ -598,23 +386,6 @@
             } finally {
                 document.getElementById('streamBtn').disabled = false;
             }
-        }
-        
-        function extractFirstFrameId(metadata) {
-            try {
-                const study = metadata.Study || {};
-                for (const [seriesId, series] of Object.entries(study.Series || {})) {
-                    for (const [instanceId, instance] of Object.entries(series.Instances || {})) {
-                        const frames = instance.ImageFrames || [];
-                        if (frames.length > 0) {
-                            return frames[0].ID;
-                        }
-                    }
-                }
-            } catch (e) {
-                console.error('Error extracting frame ID:', e);
-            }
-            return null;
         }
         
         function displayFrame(frameData, viewerEl) {

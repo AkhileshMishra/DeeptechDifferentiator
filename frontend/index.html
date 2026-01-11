@@ -8,7 +8,7 @@
     <!-- Load configuration first -->
     <script src="config.js"></script>
     
-    <!-- AWS SDK for direct HealthImaging API calls -->
+    <!-- AWS SDK v2 for Cognito credentials -->
     <script src="https://sdk.amazonaws.com/js/aws-sdk-2.1472.0.min.js"></script>
     
     <!-- Cornerstone.js for medical image rendering -->
@@ -655,12 +655,8 @@
             
             awsCredentials = AWS.config.credentials;
             
-            // Initialize HealthImaging client
-            healthImagingClient = new AWS.MedicalImaging({
-                region: window.APP_CONFIG.AWS_REGION
-            });
-            
             console.log('AWS credentials initialized');
+            console.log('Access Key:', awsCredentials.accessKeyId ? 'present' : 'missing');
         }
         
         // ============================================================================
@@ -882,26 +878,36 @@
             document.getElementById('frame-slider').value = index;
             
             try {
-                // Get image frame directly from HealthImaging API
+                // Get image frame directly from HealthImaging API using signed request
                 const datastoreId = window.APP_CONFIG.HEALTHIMAGING.DATASTORE_ID;
                 const imageSetId = selectedImageSet.imageSetId;
+                const region = window.APP_CONFIG.AWS_REGION;
                 
                 const fetchStart = performance.now();
                 
-                // Use AWS SDK to get the image frame
-                const params = {
-                    datastoreId: datastoreId,
-                    imageSetId: imageSetId,
-                    imageFrameInformation: {
-                        imageFrameId: frame.imageFrameId
-                    }
-                };
+                // Build the HealthImaging API URL
+                const url = `https://medical-imaging.${region}.amazonaws.com/datastore/${datastoreId}/imageSet/${imageSetId}/getImageFrame`;
                 
-                const response = await healthImagingClient.getImageFrame(params).promise();
+                // Create signed request
+                const request = await signRequest('POST', url, {
+                    imageFrameId: frame.imageFrameId
+                });
+                
+                const response = await fetch(request.url, {
+                    method: 'POST',
+                    headers: request.headers,
+                    body: request.body
+                });
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HealthImaging API error: ${response.status} - ${errorText}`);
+                }
+                
                 const fetchTime = performance.now() - fetchStart;
                 
                 // The response contains the HTJ2K encoded image frame
-                const encodedData = response.imageFrameBlob;
+                const encodedData = new Uint8Array(await response.arrayBuffer());
                 
                 // Decode using worker
                 const decodeStart = performance.now();
@@ -921,6 +927,106 @@
                 console.error('Failed to load frame:', error);
                 showToast('Failed to load frame: ' + error.message, 'error');
             }
+        }
+        
+        // Sign AWS API request using SigV4
+        async function signRequest(method, url, body) {
+            const region = window.APP_CONFIG.AWS_REGION;
+            const service = 'medical-imaging';
+            const credentials = awsCredentials;
+            
+            // Ensure credentials are fresh
+            if (credentials.needsRefresh()) {
+                await new Promise((resolve, reject) => {
+                    credentials.refresh((err) => err ? reject(err) : resolve());
+                });
+            }
+            
+            const urlObj = new URL(url);
+            const datetime = new Date().toISOString().replace(/[:-]|\.\d{3}/g, '');
+            const date = datetime.substring(0, 8);
+            
+            const bodyStr = body ? JSON.stringify(body) : '';
+            const bodyHash = await sha256(bodyStr);
+            
+            const headers = {
+                'host': urlObj.host,
+                'x-amz-date': datetime,
+                'x-amz-content-sha256': bodyHash,
+                'content-type': 'application/json'
+            };
+            
+            if (credentials.sessionToken) {
+                headers['x-amz-security-token'] = credentials.sessionToken;
+            }
+            
+            // Create canonical request
+            const signedHeaders = Object.keys(headers).sort().join(';');
+            const canonicalHeaders = Object.keys(headers).sort()
+                .map(k => `${k}:${headers[k]}\n`).join('');
+            
+            const canonicalRequest = [
+                method,
+                urlObj.pathname,
+                urlObj.search.substring(1),
+                canonicalHeaders,
+                signedHeaders,
+                bodyHash
+            ].join('\n');
+            
+            // Create string to sign
+            const credentialScope = `${date}/${region}/${service}/aws4_request`;
+            const stringToSign = [
+                'AWS4-HMAC-SHA256',
+                datetime,
+                credentialScope,
+                await sha256(canonicalRequest)
+            ].join('\n');
+            
+            // Calculate signature
+            const signingKey = await getSignatureKey(credentials.secretAccessKey, date, region, service);
+            const signature = await hmacHex(signingKey, stringToSign);
+            
+            // Build authorization header
+            const authorization = `AWS4-HMAC-SHA256 Credential=${credentials.accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+            
+            return {
+                url: url,
+                headers: {
+                    ...headers,
+                    'Authorization': authorization
+                },
+                body: bodyStr
+            };
+        }
+        
+        // SHA256 hash
+        async function sha256(message) {
+            const msgBuffer = new TextEncoder().encode(message);
+            const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+            return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+        
+        // HMAC-SHA256
+        async function hmac(key, message) {
+            const cryptoKey = await crypto.subtle.importKey(
+                'raw', key, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+            );
+            const msgBuffer = new TextEncoder().encode(message);
+            return await crypto.subtle.sign('HMAC', cryptoKey, msgBuffer);
+        }
+        
+        async function hmacHex(key, message) {
+            const sig = await hmac(key, message);
+            return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+        
+        // Get SigV4 signing key
+        async function getSignatureKey(secretKey, dateStamp, region, service) {
+            const kDate = await hmac(new TextEncoder().encode('AWS4' + secretKey), dateStamp);
+            const kRegion = await hmac(kDate, region);
+            const kService = await hmac(kRegion, service);
+            return await hmac(kService, 'aws4_request');
         }
         
         function decodeHTJ2K(encodedData) {

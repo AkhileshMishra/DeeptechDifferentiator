@@ -228,6 +228,157 @@ jobs:
         run: terraform apply -auto-approve tfplan
         working-directory: terraform
 
+      - name: Get Deployment Outputs
+        id: outputs
+        run: |
+          echo "frontend_url=$(terraform output -raw frontend_url)" >> $GITHUB_OUTPUT
+          echo "ohif_bucket=$(terraform output -raw ohif_viewer_bucket)" >> $GITHUB_OUTPUT
+          echo "ohif_cloudfront_id=$(terraform output -raw ohif_cloudfront_distribution_id)" >> $GITHUB_OUTPUT
+          echo "ohif_url=$(terraform output -raw ohif_viewer_url)" >> $GITHUB_OUTPUT
+          echo "datastore_id=$(terraform output -raw healthimaging_data_store_id)" >> $GITHUB_OUTPUT
+          echo "cognito_user_pool_id=$(terraform output -raw cognito_user_pool_id)" >> $GITHUB_OUTPUT
+          echo "cognito_client_id=$(terraform output -raw cognito_client_id)" >> $GITHUB_OUTPUT
+          echo "cognito_identity_pool_id=$(terraform output -raw cognito_identity_pool_id)" >> $GITHUB_OUTPUT
+          echo "cognito_domain=$(terraform output -raw cognito_domain)" >> $GITHUB_OUTPUT
+        working-directory: terraform
+        continue-on-error: true
+    
+    outputs:
+      frontend_url: ${{ steps.outputs.outputs.frontend_url }}
+      ohif_bucket: ${{ steps.outputs.outputs.ohif_bucket }}
+      ohif_cloudfront_id: ${{ steps.outputs.outputs.ohif_cloudfront_id }}
+      ohif_url: ${{ steps.outputs.outputs.ohif_url }}
+      datastore_id: ${{ steps.outputs.outputs.datastore_id }}
+      cognito_user_pool_id: ${{ steps.outputs.outputs.cognito_user_pool_id }}
+      cognito_client_id: ${{ steps.outputs.outputs.cognito_client_id }}
+      cognito_identity_pool_id: ${{ steps.outputs.outputs.cognito_identity_pool_id }}
+      cognito_domain: ${{ steps.outputs.outputs.cognito_domain }}
+
+  # Build and Deploy OHIF Viewer
+  deploy-ohif:
+    name: Deploy OHIF Viewer
+    runs-on: ubuntu-latest
+    needs: deploy-dev
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment: development
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.IAM_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install Yarn
+        run: npm install -g yarn
+
+      - name: Clone OHIF Viewer
+        run: |
+          git clone --depth 1 --branch master https://github.com/OHIF/Viewers.git ohif-source
+
+      - name: Generate OHIF Configuration
+        run: |
+          mkdir -p ohif-source/platform/app/public/config
+          cat > ohif-source/platform/app/public/config/healthimaging.js << 'EOF'
+          window.config = {
+            routerBasename: '/',
+            dataSources: [
+              {
+                namespace: '@ohif/extension-default.dataSourcesModule.healthimaging',
+                sourceName: 'healthimaging',
+                configuration: {
+                  name: 'AWS HealthImaging',
+                  datastoreID: '${{ needs.deploy-dev.outputs.datastore_id }}',
+                  region: '${{ env.AWS_REGION }}',
+                  authConfig: {
+                    type: 'cognito',
+                    region: '${{ env.AWS_REGION }}',
+                    userPoolId: '${{ needs.deploy-dev.outputs.cognito_user_pool_id }}',
+                    userPoolWebClientId: '${{ needs.deploy-dev.outputs.cognito_client_id }}',
+                    identityPoolId: '${{ needs.deploy-dev.outputs.cognito_identity_pool_id }}',
+                    oauth: {
+                      domain: '${{ needs.deploy-dev.outputs.cognito_domain }}.auth.${{ env.AWS_REGION }}.amazoncognito.com',
+                      scope: ['email', 'openid', 'profile', 'aws.cognito.signin.user.admin'],
+                      redirectSignIn: '${{ needs.deploy-dev.outputs.ohif_url }}/callback',
+                      redirectSignOut: '${{ needs.deploy-dev.outputs.ohif_url }}/',
+                      responseType: 'code'
+                    }
+                  }
+                },
+              },
+            ],
+            defaultDataSourceName: 'healthimaging',
+            extensions: [
+              '@ohif/extension-default',
+              '@ohif/extension-cornerstone',
+              '@ohif/extension-measurement-tracking',
+              '@ohif/extension-cornerstone-dicom-sr',
+            ],
+            modes: [
+              '@ohif/mode-longitudinal',
+              '@ohif/mode-basic-dev-mode',
+            ],
+            showStudyList: true,
+            maxNumberOfWebWorkers: 4,
+            showWarningMessageForCrossOrigin: false,
+            strictZoomAndPan: false,
+            investigationalUseDialog: {
+              option: 'never',
+            },
+          };
+          EOF
+
+      - name: Cache OHIF Dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ohif-source/node_modules
+            ohif-source/.yarn/cache
+          key: ohif-deps-${{ hashFiles('ohif-source/yarn.lock') }}
+          restore-keys: |
+            ohif-deps-
+
+      - name: Install OHIF Dependencies
+        run: |
+          cd ohif-source
+          yarn install --frozen-lockfile
+        timeout-minutes: 15
+
+      - name: Build OHIF Viewer
+        run: |
+          cd ohif-source
+          APP_CONFIG=config/healthimaging.js yarn build
+        timeout-minutes: 20
+        env:
+          NODE_OPTIONS: "--max_old_space_size=4096"
+
+      - name: Deploy OHIF to S3
+        run: |
+          aws s3 sync ohif-source/platform/app/dist/ s3://${{ needs.deploy-dev.outputs.ohif_bucket }}/ --delete
+
+      - name: Invalidate OHIF CloudFront Cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ needs.deploy-dev.outputs.ohif_cloudfront_id }} \
+            --paths "/*"
+
+      - name: Print Deployment Summary
+        run: |
+          echo "=========================================="
+          echo "🏥 OHIF Viewer Deployed!"
+          echo "=========================================="
+          echo "Frontend URL: ${{ needs.deploy-dev.outputs.frontend_url }}"
+          echo "OHIF Viewer URL: ${{ needs.deploy-dev.outputs.ohif_url }}"
+          echo "HealthImaging Datastore: ${{ needs.deploy-dev.outputs.datastore_id }}"
+          echo "=========================================="
+
   # Deploy to Production (NEEDS AWS AUTH)
   #deploy-prod:
    # name: Deploy to Production

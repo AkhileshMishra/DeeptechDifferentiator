@@ -1,6 +1,7 @@
 # ============================================================================
 # COGNITO MODULE
-# Healthcare Imaging MLOps Platform - Authentication for HealthImaging Access
+# Healthcare Imaging MLOps Platform - OIDC Authentication for HealthImaging
+# Implements AWS Reference Architecture for OHIF + HealthImaging
 # ============================================================================
 
 # ============================================================================
@@ -47,19 +48,19 @@ resource "aws_cognito_user_pool" "main" {
 }
 
 # ============================================================================
-# COGNITO USER POOL CLIENT
+# COGNITO USER POOL CLIENT - For OHIF Viewer (OIDC)
 # ============================================================================
 
 resource "aws_cognito_user_pool_client" "main" {
   name         = "${var.name_prefix}-app-client"
   user_pool_id = aws_cognito_user_pool.main.id
 
-  # No client secret for browser-based apps
+  # No client secret for browser-based apps (SPA)
   generate_secret = false
 
-  # OAuth settings
-  allowed_oauth_flows                  = ["implicit"]
-  allowed_oauth_scopes                 = ["email", "openid", "profile"]
+  # OAuth settings - Authorization Code Grant for OIDC
+  allowed_oauth_flows                  = ["code"]
+  allowed_oauth_scopes                 = ["email", "openid", "profile", "aws.cognito.signin.user.admin"]
   allowed_oauth_flows_user_pool_client = true
   
   callback_urls = var.callback_urls
@@ -76,7 +77,7 @@ resource "aws_cognito_user_pool_client" "main" {
     refresh_token = "days"
   }
 
-  # Explicit auth flows for browser
+  # Explicit auth flows for browser + refresh
   explicit_auth_flows = [
     "ALLOW_USER_SRP_AUTH",
     "ALLOW_REFRESH_TOKEN_AUTH",
@@ -84,6 +85,12 @@ resource "aws_cognito_user_pool_client" "main" {
   ]
 
   supported_identity_providers = ["COGNITO"]
+  
+  # Enable token revocation
+  enable_token_revocation = true
+  
+  # Prevent user existence errors
+  prevent_user_existence_errors = "ENABLED"
 }
 
 # ============================================================================
@@ -96,28 +103,28 @@ resource "aws_cognito_user_pool_domain" "main" {
 }
 
 # ============================================================================
-# COGNITO IDENTITY POOL
+# COGNITO IDENTITY POOL - For AWS Credentials Exchange
 # ============================================================================
 
 resource "aws_cognito_identity_pool" "main" {
   identity_pool_name               = "${var.name_prefix}-identity-pool"
-  allow_unauthenticated_identities = true  # Allow guest access for demo
+  allow_unauthenticated_identities = false  # Production: require authentication
   allow_classic_flow               = false
 
   cognito_identity_providers {
     client_id               = aws_cognito_user_pool_client.main.id
     provider_name           = aws_cognito_user_pool.main.endpoint
-    server_side_token_check = false
+    server_side_token_check = true
   }
 
   tags = var.tags
 }
 
 # ============================================================================
-# IAM ROLES FOR IDENTITY POOL
+# IAM ROLES FOR IDENTITY POOL - HealthImaging Access
 # ============================================================================
 
-# Authenticated role - for logged-in users
+# Authenticated role - for logged-in users accessing HealthImaging
 resource "aws_iam_role" "authenticated" {
   name = "${var.name_prefix}-cognito-authenticated"
 
@@ -145,79 +152,77 @@ resource "aws_iam_role" "authenticated" {
   tags = var.tags
 }
 
-resource "aws_iam_role_policy" "authenticated" {
-  name = "${var.name_prefix}-cognito-authenticated-policy"
+# HealthImaging read access policy for authenticated users
+resource "aws_iam_role_policy" "authenticated_healthimaging" {
+  name = "${var.name_prefix}-cognito-healthimaging-policy"
   role = aws_iam_role.authenticated.id
 
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
+        Sid    = "HealthImagingReadAccess"
         Effect = "Allow"
         Action = [
           "medical-imaging:GetImageSet",
           "medical-imaging:GetImageFrame",
           "medical-imaging:GetImageSetMetadata",
           "medical-imaging:SearchImageSets",
-          "medical-imaging:ListImageSetVersions"
+          "medical-imaging:ListImageSetVersions",
+          "medical-imaging:GetDICOMImportJob",
+          "medical-imaging:ListDICOMImportJobs"
         ]
-        Resource = var.healthimaging_datastore_arn
+        Resource = [
+          var.healthimaging_datastore_arn,
+          "${var.healthimaging_datastore_arn}/*"
+        ]
       },
       {
+        Sid    = "HealthImagingListDatastores"
         Effect = "Allow"
         Action = [
           "medical-imaging:ListDatastores"
         ]
         Resource = "*"
-      }
-    ]
-  })
-}
-
-# Unauthenticated role - for guest/demo access
-resource "aws_iam_role" "unauthenticated" {
-  name = "${var.name_prefix}-cognito-unauthenticated"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
+      },
       {
+        Sid    = "KMSDecryptForHealthImaging"
         Effect = "Allow"
-        Principal = {
-          Federated = "cognito-identity.amazonaws.com"
-        }
-        Action = "sts:AssumeRoleWithWebIdentity"
+        Action = [
+          "kms:Decrypt",
+          "kms:DescribeKey"
+        ]
+        Resource = var.kms_key_arn
         Condition = {
           StringEquals = {
-            "cognito-identity.amazonaws.com:aud" = aws_cognito_identity_pool.main.id
-          }
-          "ForAnyValue:StringLike" = {
-            "cognito-identity.amazonaws.com:amr" = "unauthenticated"
+            "kms:ViaService" = "medical-imaging.${var.aws_region}.amazonaws.com"
           }
         }
       }
     ]
   })
-
-  tags = var.tags
 }
 
-resource "aws_iam_role_policy" "unauthenticated" {
-  name = "${var.name_prefix}-cognito-unauthenticated-policy"
-  role = aws_iam_role.unauthenticated.id
+# S3 access for DICOM uploads (authenticated users can upload)
+resource "aws_iam_role_policy" "authenticated_s3" {
+  name = "${var.name_prefix}-cognito-s3-policy"
+  role = aws_iam_role.authenticated.id
 
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
+        Sid    = "S3UploadAccess"
         Effect = "Allow"
         Action = [
-          "medical-imaging:GetImageSet",
-          "medical-imaging:GetImageFrame",
-          "medical-imaging:GetImageSetMetadata",
-          "medical-imaging:SearchImageSets"
+          "s3:PutObject",
+          "s3:GetObject",
+          "s3:ListBucket"
         ]
-        Resource = var.healthimaging_datastore_arn
+        Resource = [
+          var.dicom_upload_bucket_arn,
+          "${var.dicom_upload_bucket_arn}/*"
+        ]
       }
     ]
   })
@@ -231,7 +236,26 @@ resource "aws_cognito_identity_pool_roles_attachment" "main" {
   identity_pool_id = aws_cognito_identity_pool.main.id
 
   roles = {
-    "authenticated"   = aws_iam_role.authenticated.arn
-    "unauthenticated" = aws_iam_role.unauthenticated.arn
+    "authenticated" = aws_iam_role.authenticated.arn
+  }
+}
+
+# ============================================================================
+# COGNITO USER POOL RESOURCE SERVER (Optional - for custom scopes)
+# ============================================================================
+
+resource "aws_cognito_resource_server" "healthimaging" {
+  identifier   = "healthimaging"
+  name         = "HealthImaging API"
+  user_pool_id = aws_cognito_user_pool.main.id
+
+  scope {
+    scope_name        = "read"
+    scope_description = "Read access to HealthImaging data"
+  }
+
+  scope {
+    scope_name        = "write"
+    scope_description = "Write access to HealthImaging data"
   }
 }

@@ -366,7 +366,7 @@ module "monitoring" {
 }
 
 # ============================================================================
-# COGNITO FOR HEALTHIMAGING BROWSER ACCESS
+# COGNITO FOR HEALTHIMAGING BROWSER ACCESS (OIDC)
 # ============================================================================
 
 module "cognito" {
@@ -374,21 +374,31 @@ module "cognito" {
 
   name_prefix                 = local.name_prefix
   aws_account_id              = data.aws_caller_identity.current.account_id
+  aws_region                  = var.aws_region
   healthimaging_datastore_arn = module.healthimaging.data_store_arn
+  kms_key_arn                 = module.security.sagemaker_kms_key_arn
+  dicom_upload_bucket_arn     = module.storage.training_data_bucket_arn
   
   callback_urls = [
     "https://${aws_cloudfront_distribution.frontend.domain_name}/",
+    "https://${aws_cloudfront_distribution.frontend.domain_name}/callback",
+    "https://${aws_cloudfront_distribution.ohif_viewer.domain_name}/",
+    "https://${aws_cloudfront_distribution.ohif_viewer.domain_name}/callback",
     "http://localhost:8080/",
-    "http://localhost:3000/"
+    "http://localhost:8080/callback",
+    "http://localhost:3000/",
+    "http://localhost:3000/callback"
   ]
   
   logout_urls = [
     "https://${aws_cloudfront_distribution.frontend.domain_name}/",
-    "http://localhost:8080/"
+    "https://${aws_cloudfront_distribution.ohif_viewer.domain_name}/",
+    "http://localhost:8080/",
+    "http://localhost:3000/"
   ]
 
   tags = local.common_tags
-  depends_on = [module.healthimaging]
+  depends_on = [module.healthimaging, module.security, module.storage]
 }
 
 # ============================================================================
@@ -451,4 +461,14 @@ output "cognito_client_id" {
 output "cognito_identity_pool_id" {
   description = "Cognito Identity Pool ID"
   value       = module.cognito.identity_pool_id
+}
+
+output "cognito_domain" {
+  description = "Cognito User Pool Domain"
+  value       = module.cognito.user_pool_domain
+}
+
+output "cognito_oauth_config" {
+  description = "Cognito OAuth configuration for OHIF"
+  value       = module.cognito.oauth_config
 }

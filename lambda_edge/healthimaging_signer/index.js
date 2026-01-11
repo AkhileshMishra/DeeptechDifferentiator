@@ -38,17 +38,22 @@ exports.handler = async (event) => {
                 method = 'POST';
                 body = JSON.stringify({ imageFrameId: imageFrameId });
                 
-                // Update request method and body
+                // Update request method
                 request.method = 'POST';
+                
+                // Set body - must use base64 encoding for origin-request
                 request.body = {
                     action: 'replace',
-                    encoding: 'text',
-                    data: body
+                    encoding: 'base64',
+                    data: Buffer.from(body).toString('base64')
                 };
-                request.querystring = '';  // Clear query string
                 
-                // Set content-type for JSON body
+                // Clear query string since we moved imageFrameId to body
+                request.querystring = '';
+                
+                // Set required headers for POST with JSON body
                 request.headers['content-type'] = [{ key: 'Content-Type', value: 'application/json' }];
+                request.headers['content-length'] = [{ key: 'Content-Length', value: String(Buffer.byteLength(body)) }];
             }
         } else if (request.body && request.body.data) {
             // Handle existing POST requests

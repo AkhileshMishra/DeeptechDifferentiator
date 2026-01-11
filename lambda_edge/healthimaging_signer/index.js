@@ -1,6 +1,9 @@
 /**
  * Lambda@Edge Origin Request Handler
  * Signs requests to AWS HealthImaging using SigV4
+ * 
+ * Converts GET requests with query params to POST requests with JSON body
+ * for GetImageFrame API (required by HealthImaging API)
  */
 
 const crypto = require('crypto');
@@ -19,16 +22,39 @@ exports.handler = async (event) => {
             sessionToken: process.env.AWS_SESSION_TOKEN
         };
         
-        // Build the request to sign
         const host = `runtime-medical-imaging.${REGION}.amazonaws.com`;
-        const method = request.method;
-        const path = request.uri;
-        const querystring = request.querystring || '';
-        
-        // Get body for POST requests
+        let method = request.method;
+        let path = request.uri;
         let body = '';
-        if (request.body && request.body.data) {
-            body = Buffer.from(request.body.data, 'base64').toString('utf8');
+        
+        // Check if this is a getImageFrame request (needs GET→POST conversion)
+        // CloudFront sends GET for caching, but HealthImaging API requires POST
+        if (path.includes('/getImageFrame') && request.querystring) {
+            const params = new URLSearchParams(request.querystring);
+            const imageFrameId = params.get('imageFrameId');
+            
+            if (imageFrameId) {
+                // Convert to POST with JSON body
+                method = 'POST';
+                body = JSON.stringify({ imageFrameId: imageFrameId });
+                
+                // Update request method and body
+                request.method = 'POST';
+                request.body = {
+                    action: 'replace',
+                    encoding: 'text',
+                    data: body
+                };
+                request.querystring = '';  // Clear query string
+                
+                // Set content-type for JSON body
+                request.headers['content-type'] = [{ key: 'Content-Type', value: 'application/json' }];
+            }
+        } else if (request.body && request.body.data) {
+            // Handle existing POST requests
+            body = request.body.encoding === 'base64' 
+                ? Buffer.from(request.body.data, 'base64').toString('utf8')
+                : request.body.data;
         }
         
         // Sign the request
@@ -36,7 +62,7 @@ exports.handler = async (event) => {
             method,
             host,
             path,
-            querystring,
+            querystring: request.querystring || '',
             body,
             credentials,
             region: REGION,
@@ -60,6 +86,9 @@ exports.handler = async (event) => {
         return {
             status: '500',
             statusDescription: 'Internal Server Error',
+            headers: {
+                'content-type': [{ key: 'Content-Type', value: 'application/json' }]
+            },
             body: JSON.stringify({ error: 'Failed to sign request: ' + error.message })
         };
     }

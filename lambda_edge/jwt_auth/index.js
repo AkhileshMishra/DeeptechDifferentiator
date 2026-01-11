@@ -5,7 +5,7 @@
 
 const crypto = require('crypto');
 
-// Cognito configuration - will be replaced during deployment
+// Cognito configuration - replaced during deployment by Terraform
 const COGNITO_REGION = '${cognito_region}';
 const COGNITO_USER_POOL_ID = '${cognito_user_pool_id}';
 const COGNITO_CLIENT_ID = '${cognito_client_id}';
@@ -88,26 +88,28 @@ function unauthorizedResponse(message, origin) {
             'content-type': [{ key: 'Content-Type', value: 'application/json' }],
             'access-control-allow-origin': [{ key: 'Access-Control-Allow-Origin', value: origin }]
         },
-        body: JSON.stringify({ error: 'Unauthorized', message })
+        body: JSON.stringify({ error: 'Unauthorized', message: message })
     };
 }
 
 async function verifyToken(token) {
     // Decode token header to get key ID
-    const [headerB64] = token.split('.');
+    const parts = token.split('.');
+    const headerB64 = parts[0];
     const header = JSON.parse(Buffer.from(headerB64, 'base64url').toString());
     
     // Get JWKS
     const jwks = await getJwks();
-    const key = jwks.keys.find(k => k.kid === header.kid);
+    const key = jwks.keys.find(function(k) { return k.kid === header.kid; });
     
     if (!key) {
         throw new Error('Key not found in JWKS');
     }
     
     // Verify signature
-    const [, payloadB64, signatureB64] = token.split('.');
-    const signatureInput = `${headerB64}.${payloadB64}`;
+    const payloadB64 = parts[1];
+    const signatureB64 = parts[2];
+    const signatureInput = headerB64 + '.' + payloadB64;
     const signature = Buffer.from(signatureB64, 'base64url');
     
     const publicKey = jwkToPem(key);
@@ -131,7 +133,7 @@ async function verifyToken(token) {
     }
     
     // Check issuer
-    const expectedIssuer = `https://cognito-idp.${COGNITO_REGION}.amazonaws.com/${COGNITO_USER_POOL_ID}`;
+    const expectedIssuer = 'https://cognito-idp.' + COGNITO_REGION + '.amazonaws.com/' + COGNITO_USER_POOL_ID;
     if (payload.iss !== expectedIssuer) {
         throw new Error('Invalid issuer');
     }
@@ -153,7 +155,7 @@ async function getJwks() {
         return jwksCache;
     }
     
-    const jwksUrl = `https://cognito-idp.${COGNITO_REGION}.amazonaws.com/${COGNITO_USER_POOL_ID}/.well-known/jwks.json`;
+    const jwksUrl = 'https://cognito-idp.' + COGNITO_REGION + '.amazonaws.com/' + COGNITO_USER_POOL_ID + '/.well-known/jwks.json';
     
     const response = await fetch(jwksUrl);
     if (!response.ok) {
@@ -210,9 +212,8 @@ function jwkToPem(jwk) {
         bitString
     ]);
     
-    const pem = '-----BEGIN PUBLIC KEY-----\n' +
-        spki.toString('base64').match(/.{1,64}/g).join('\n') +
-        '\n-----END PUBLIC KEY-----';
+    const pemLines = spki.toString('base64').match(/.{1,64}/g);
+    const pem = '-----BEGIN PUBLIC KEY-----\n' + pemLines.join('\n') + '\n-----END PUBLIC KEY-----';
     
     return pem;
 }

@@ -829,40 +829,42 @@
             const frames = [];
             const dicomMetadata = metadata.dicomMetadata || {};
             
-            // Navigate: Patient -> Studies -> Series -> Instances -> ImageFrames
-            if (dicomMetadata.Patient) {
-                const patient = dicomMetadata.Patient;
-                const studies = patient.Studies || {};
+            // HealthImaging Schema 1.1 structure: Study -> Series -> Instances -> ImageFrames
+            // (Patient is a separate top-level key)
+            if (dicomMetadata.Study) {
+                const study = dicomMetadata.Study;
+                const studyDicom = study.DICOM || {};
+                const studyUid = studyDicom.StudyInstanceUID || 'unknown';
+                const series = study.Series || {};
                 
-                for (const [studyUid, study] of Object.entries(studies)) {
-                    const series = study.Series || {};
+                for (const [seriesUid, seriesData] of Object.entries(series)) {
+                    const instances = seriesData.Instances || {};
+                    const seriesDicom = seriesData.DICOM || {};
                     
-                    for (const [seriesUid, seriesData] of Object.entries(series)) {
-                        const instances = seriesData.Instances || {};
-                        const seriesDicom = seriesData.DICOM || {};
+                    for (const [instanceUid, instance] of Object.entries(instances)) {
+                        const imageFrames = instance.ImageFrames || [];
+                        const instanceDicom = instance.DICOM || {};
                         
-                        for (const [instanceUid, instance] of Object.entries(instances)) {
-                            const imageFrames = instance.ImageFrames || [];
-                            const instanceDicom = instance.DICOM || {};
-                            
-                            imageFrames.forEach((frame, idx) => {
-                                frames.push({
-                                    imageFrameId: frame.ID,
-                                    studyUid,
-                                    seriesUid,
-                                    instanceUid,
-                                    frameIndex: idx,
-                                    dicom: {
-                                        ...instanceDicom,
-                                        Modality: seriesDicom.Modality
-                                    },
-                                    frameInfo: frame
-                                });
+                        imageFrames.forEach((frame, idx) => {
+                            frames.push({
+                                imageFrameId: frame.ID,
+                                studyUid,
+                                seriesUid,
+                                instanceUid,
+                                frameIndex: idx,
+                                dicom: {
+                                    ...instanceDicom,
+                                    Modality: seriesDicom.Modality
+                                },
+                                frameInfo: frame
                             });
-                        }
+                        });
                     }
                 }
             }
+            
+            // Log for debugging
+            console.log('Extracted frames:', frames.length, frames.slice(0, 2));
             
             return frames;
         }

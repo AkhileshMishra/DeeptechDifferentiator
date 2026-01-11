@@ -143,69 +143,68 @@ def extract_study_info(dicom_metadata):
     }
     
     try:
-        # Navigate the HealthImaging metadata structure
-        # Structure: Patient -> Study -> Series -> Instance
+        # Get patient info from top-level Patient key
         if 'Patient' in dicom_metadata:
             patient = dicom_metadata['Patient']
             patient_dicom = patient.get('DICOM', {})
             study_info['PatientName'] = patient_dicom.get('PatientName')
             study_info['PatientID'] = patient_dicom.get('PatientID')
+        
+        # Get study info from top-level Study key (HealthImaging schema 1.1)
+        if 'Study' in dicom_metadata:
+            study_data = dicom_metadata['Study']
+            study_dicom = study_data.get('DICOM', {})
             
-            # Get studies
-            studies = patient.get('Studies', {})
-            for study_uid, study_data in studies.items():
-                study_dicom = study_data.get('DICOM', {})
-                study_info['StudyInstanceUID'] = study_uid
-                study_info['StudyDate'] = study_dicom.get('StudyDate')
-                study_info['StudyTime'] = study_dicom.get('StudyTime')
-                study_info['StudyDescription'] = study_dicom.get('StudyDescription')
+            study_info['StudyInstanceUID'] = study_dicom.get('StudyInstanceUID')
+            study_info['StudyDate'] = study_dicom.get('StudyDate')
+            study_info['StudyTime'] = study_dicom.get('StudyTime')
+            study_info['StudyDescription'] = study_dicom.get('StudyDescription')
+            
+            # Get series from Study.Series
+            series_dict = study_data.get('Series', {})
+            study_info['SeriesCount'] = len(series_dict)
+            
+            for series_uid, series_data in series_dict.items():
+                series_dicom = series_data.get('DICOM', {})
+                instances = series_data.get('Instances', {})
                 
-                # Get series
-                series_list = study_data.get('Series', {})
-                study_info['SeriesCount'] = len(series_list)
+                series_info = {
+                    'SeriesInstanceUID': series_uid,
+                    'SeriesNumber': series_dicom.get('SeriesNumber'),
+                    'SeriesDescription': series_dicom.get('SeriesDescription'),
+                    'Modality': series_dicom.get('Modality'),
+                    'InstanceCount': len(instances),
+                    'instances': []
+                }
                 
-                for series_uid, series_data in series_list.items():
-                    series_dicom = series_data.get('DICOM', {})
-                    instances = series_data.get('Instances', {})
+                # Set modality at study level
+                if not study_info['Modality']:
+                    study_info['Modality'] = series_dicom.get('Modality')
+                
+                # Get instance info
+                for instance_uid, instance_data in instances.items():
+                    instance_dicom = instance_data.get('DICOM', {})
+                    image_frames = instance_data.get('ImageFrames', [])
                     
-                    series_info = {
-                        'SeriesInstanceUID': series_uid,
-                        'SeriesNumber': series_dicom.get('SeriesNumber'),
-                        'SeriesDescription': series_dicom.get('SeriesDescription'),
-                        'Modality': series_dicom.get('Modality'),
-                        'InstanceCount': len(instances),
-                        'instances': []
+                    instance_info = {
+                        'SOPInstanceUID': instance_uid,
+                        'InstanceNumber': instance_dicom.get('InstanceNumber'),
+                        'Rows': instance_dicom.get('Rows'),
+                        'Columns': instance_dicom.get('Columns'),
+                        'BitsAllocated': instance_dicom.get('BitsAllocated'),
+                        'PhotometricInterpretation': instance_dicom.get('PhotometricInterpretation'),
+                        'FrameCount': len(image_frames),
+                        'ImageFrames': image_frames
                     }
-                    
-                    # Set modality at study level
-                    if not study_info['Modality']:
-                        study_info['Modality'] = series_dicom.get('Modality')
-                    
-                    # Get instance info
-                    for instance_uid, instance_data in instances.items():
-                        instance_dicom = instance_data.get('DICOM', {})
-                        image_frames = instance_data.get('ImageFrames', [])
-                        
-                        instance_info = {
-                            'SOPInstanceUID': instance_uid,
-                            'InstanceNumber': instance_dicom.get('InstanceNumber'),
-                            'Rows': instance_dicom.get('Rows'),
-                            'Columns': instance_dicom.get('Columns'),
-                            'BitsAllocated': instance_dicom.get('BitsAllocated'),
-                            'PhotometricInterpretation': instance_dicom.get('PhotometricInterpretation'),
-                            'FrameCount': len(image_frames),
-                            'ImageFrames': image_frames
-                        }
-                        series_info['instances'].append(instance_info)
-                        study_info['InstanceCount'] += 1
-                    
-                    study_info['series'].append(series_info)
-                    
-                # Only process first study
-                break
+                    series_info['instances'].append(instance_info)
+                    study_info['InstanceCount'] += 1
+                
+                study_info['series'].append(series_info)
                 
     except Exception as e:
         print(f"Error extracting study info: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
     
     return study_info
 

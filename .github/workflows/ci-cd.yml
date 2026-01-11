@@ -220,6 +220,17 @@ jobs:
             -backend-config="encrypt=true"
         working-directory: terraform
 
+      - name: Remove stale Lambda@Edge from state (if exists)
+        run: |
+          # Lambda@Edge functions can't be deleted immediately due to replica propagation
+          # Remove them from state so Terraform doesn't try to delete them
+          terraform state rm aws_lambda_function.healthimaging_cors 2>/dev/null || true
+          terraform state rm aws_lambda_function.healthimaging_signer 2>/dev/null || true
+          terraform state rm data.archive_file.healthimaging_cors_zip 2>/dev/null || true
+          terraform state rm data.archive_file.healthimaging_signer_zip 2>/dev/null || true
+        working-directory: terraform
+        continue-on-error: true
+
       - name: Terraform Plan
         run: terraform plan -var-file=environments/dev.tfvars -out=tfplan
         working-directory: terraform

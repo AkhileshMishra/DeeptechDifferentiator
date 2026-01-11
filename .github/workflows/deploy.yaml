@@ -146,70 +146,93 @@ jobs:
 
       - name: Clone OHIF Viewer
         run: |
-          git clone --depth 1 --branch master https://github.com/OHIF/Viewers.git ohif-source
+          # Use OHIF v3.11.0 which is tested with AWS HealthImaging
+          echo "Downloading OHIF v3.11.0..."
+          wget -q -O ohif.zip https://github.com/OHIF/Viewers/archive/refs/tags/v3.11.0.zip
+          unzip -qq ohif.zip
+          mv Viewers-3.11.0 ohif-source
+          ls -la ohif-source/
 
       - name: Generate OHIF Configuration
         run: |
-          # Create config in multiple possible locations for compatibility
+          # Create config directory
           mkdir -p ohif-source/platform/app/public/config
-          mkdir -p ohif-source/platform/viewer/public/config
           
-          # Generate the config content - using DICOMweb data source
-          cat > /tmp/healthimaging.js << 'CONFIGEOF'
-          window.config = {
-            routerBasename: '/',
-            showStudyList: true,
-            maxNumberOfWebWorkers: 4,
-            showWarningMessageForCrossOrigin: false,
-            strictZoomAndPan: false,
-            
-            // Data sources - using dicomweb for compatibility
-            dataSources: [
-              {
-                namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
-                sourceName: 'dicomweb',
-                configuration: {
-                  friendlyName: 'AWS HealthImaging',
-                  name: 'healthimaging',
-                  wadoUriRoot: '',
-                  qidoRoot: '',
-                  wadoRoot: '',
-                  qidoSupportsIncludeField: false,
-                  imageRendering: 'wadors',
-                  thumbnailRendering: 'wadors',
-                  enableStudyLazyLoad: true,
-                  supportsFuzzyMatching: false,
-                  supportsWildcard: false,
-                  staticWado: true,
-                  singlepart: 'bulkdata,video,pdf',
-                },
-              },
-            ],
-            
-            defaultDataSourceName: 'dicomweb',
-            
-            investigationalUseDialog: {
-              option: 'never',
-            },
-            
-            // White labeling
-            whiteLabeling: {
-              createLogoComponentFn: function(React) { return null; },
-            },
-          };
-          CONFIGEOF
+          # Apply AWS HealthImaging compatibility fix (remove Accept header)
+          echo "Applying AWS HealthImaging compatibility fixes..."
+          cat > ohif-source/apply-fixes.js << 'FIXEOF'
+const fs = require("fs");
+console.log("Applying Accept header fix...");
+try {
+  const asyncLoaderPath = "extensions/default/src/DicomWebDataSource/wado/retrieveMetadataLoaderAsync.js";
+  if (fs.existsSync(asyncLoaderPath)) {
+    let asyncContent = fs.readFileSync(asyncLoaderPath, "utf8");
+    asyncContent = asyncContent.replace(/if \(seriesInstanceUID\)/, "delete client.headers.Accept;\n    if (seriesInstanceUID)");
+    fs.writeFileSync(asyncLoaderPath, asyncContent);
+    console.log("Applied Accept header fix to async loader");
+  } else {
+    console.log("File not found: " + asyncLoaderPath);
+  }
+} catch (error) {
+  console.error("Error applying fixes:", error.message);
+  process.exit(1);
+}
+FIXEOF
+          cd ohif-source && node apply-fixes.js && cd ..
           
-          # Copy to all possible config locations
-          cp /tmp/healthimaging.js ohif-source/platform/app/public/config/
-          cp /tmp/healthimaging.js ohif-source/platform/viewer/public/config/ 2>/dev/null || true
+          # Generate OHIF config for AWS HealthImaging DICOMweb endpoint
+          cat > ohif-source/platform/app/public/config/default.js << CONFIGEOF
+window.config = {
+  routerBasename: '/',
+  extensions: [],
+  modes: [],
+  showStudyList: true,
+  maxNumRequests: {
+    interaction: 200,
+    thumbnail: 100,
+    prefetch: 50
+  },
+  dataSources: [{
+    namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
+    sourceName: 'dicomweb',
+    configuration: {
+      friendlyName: 'AWS HealthImaging',
+      name: 'aws-healthimaging',
+      wadoUriRoot: 'https://dicom-medical-imaging.${{ env.AWS_REGION }}.amazonaws.com/datastore/${{ steps.config.outputs.datastore_id }}',
+      qidoRoot: 'https://dicom-medical-imaging.${{ env.AWS_REGION }}.amazonaws.com/datastore/${{ steps.config.outputs.datastore_id }}',
+      wadoRoot: 'https://dicom-medical-imaging.${{ env.AWS_REGION }}.amazonaws.com/datastore/${{ steps.config.outputs.datastore_id }}',
+      acceptHeader: ['*/*'],
+      qidoSupportsIncludeField: false,
+      supportsReject: false,
+      imageRendering: 'wadors',
+      thumbnailRendering: 'wadors',
+      enableStudyLazyLoad: true,
+      supportsFuzzyMatching: false,
+      supportsWildcard: false,
+      staticWado: false,
+      singlepart: 'bulkdata,video',
+      requestOptions: {
+        headers: {
+          'Authorization': 'Bearer {{ACCESS_TOKEN}}'
+        }
+      }
+    }
+  }],
+  oidc: [{
+    authority: 'https://cognito-idp.${{ env.AWS_REGION }}.amazonaws.com/${{ steps.config.outputs.cognito_user_pool_id }}',
+    client_id: '${{ steps.config.outputs.cognito_client_id }}',
+    redirect_uri: '${{ steps.config.outputs.ohif_url }}/callback',
+    response_type: 'code',
+    scope: 'openid profile email',
+    post_logout_redirect_uri: '${{ steps.config.outputs.ohif_url }}/logout',
+    automaticSilentRenew: true,
+    revokeAccessTokenOnSignout: false
+  }]
+};
+CONFIGEOF
           
-          # Also create default.js as fallback
-          cp /tmp/healthimaging.js ohif-source/platform/app/public/config/default.js
-          cp /tmp/healthimaging.js ohif-source/platform/viewer/public/config/default.js 2>/dev/null || true
-          
-          echo "Config files created:"
-          ls -la ohif-source/platform/app/public/config/ || true
-          cat /tmp/healthimaging.js
+          echo "Config file created:"
+          cat ohif-source/platform/app/public/config/default.js
 
       - name: Cache OHIF Dependencies
         uses: actions/cache@v3

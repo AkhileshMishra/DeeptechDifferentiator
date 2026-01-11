@@ -1,6 +1,7 @@
 # ============================================================================
 # AWS HEALTHIMAGING MODULE
 # Healthcare Imaging MLOps Platform
+# Supports both native API and DICOMweb API with OIDC authentication
 # ============================================================================
 
 # ============================================================================
@@ -18,7 +19,60 @@ resource "awscc_healthimaging_datastore" "main" {
 }
 
 # ============================================================================
-# IAM ROLE FOR HEALTHIMAGING ACCESS
+# IAM ROLE FOR DICOMWEB READ-ONLY ACCESS (Used by Lambda Authorizer)
+# ============================================================================
+
+resource "aws_iam_role" "dicomweb_readonly" {
+  name = "${var.name_prefix}-dicomweb-readonly-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "medical-imaging.amazonaws.com"
+        }
+      }
+    ]
+  })
+
+  tags = var.tags
+}
+
+resource "aws_iam_role_policy" "dicomweb_readonly" {
+  name = "${var.name_prefix}-dicomweb-readonly-policy"
+  role = aws_iam_role.dicomweb_readonly.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "DICOMWebReadOnly"
+        Effect = "Allow"
+        Action = [
+          "medical-imaging:GetDICOMImportJob",
+          "medical-imaging:ListDICOMImportJobs",
+          "medical-imaging:ListDatastores",
+          "medical-imaging:ListImageSetVersions",
+          "medical-imaging:SearchDICOMStudies",
+          "medical-imaging:GetDICOMInstance",
+          "medical-imaging:GetDICOMInstanceFrames",
+          "medical-imaging:GetDICOMInstanceMetadata",
+          "medical-imaging:GetDICOMSeriesMetadata",
+          "medical-imaging:SearchDICOMInstances",
+          "medical-imaging:GetDICOMBulkdata",
+          "medical-imaging:SearchDICOMSeries"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+# ============================================================================
+# IAM ROLE FOR HEALTHIMAGING ACCESS (Native API)
 # ============================================================================
 
 resource "aws_iam_role" "healthimaging_access" {

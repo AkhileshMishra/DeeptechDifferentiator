@@ -20,6 +20,11 @@ output "access_role_arn" {
   value       = aws_iam_role.healthimaging_access.arn
 }
 
+output "dicomweb_readonly_role_arn" {
+  description = "ARN of the DICOMweb read-only role for OIDC authorizer"
+  value       = aws_iam_role.dicomweb_readonly.arn
+}
+
 output "dicom_ingestion_bucket_id" {
   description = "ID of the DICOM ingestion bucket"
   value       = aws_s3_bucket.dicom_ingestion.id

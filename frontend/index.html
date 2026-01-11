@@ -880,35 +880,31 @@
             document.getElementById('frame-slider').value = index;
             
             try {
-                // Get image frame directly from HealthImaging API using signed request
                 const datastoreId = window.APP_CONFIG.HEALTHIMAGING.DATASTORE_ID;
                 const imageSetId = selectedImageSet.imageSetId;
-                const region = window.APP_CONFIG.AWS_REGION;
+                const proxyUrl = window.APP_CONFIG.HEALTHIMAGING.PROXY_URL;
                 
                 const fetchStart = performance.now();
                 
-                // Build the HealthImaging API URL
-                const url = `https://medical-imaging.${region}.amazonaws.com/datastore/${datastoreId}/imageSet/${imageSetId}/getImageFrame`;
+                // Use CloudFront proxy for low-latency cached access
+                // The proxy handles SigV4 signing via Lambda@Edge
+                const url = `${proxyUrl}/datastore/${datastoreId}/imageSet/${imageSetId}/getImageFrame?imageFrameId=${frame.imageFrameId}`;
                 
-                // Create signed request
-                const request = await signRequest('POST', url, {
-                    imageFrameId: frame.imageFrameId
-                });
-                
-                const response = await fetch(request.url, {
-                    method: 'POST',
-                    headers: request.headers,
-                    body: request.body
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
+                    }
                 });
                 
                 if (!response.ok) {
                     const errorText = await response.text();
-                    throw new Error(`HealthImaging API error: ${response.status} - ${errorText}`);
+                    throw new Error(`API error: ${response.status} - ${errorText}`);
                 }
                 
                 const fetchTime = performance.now() - fetchStart;
                 
-                // The response contains the HTJ2K encoded image frame
+                // The response is HTJ2K encoded image data
                 const encodedData = new Uint8Array(await response.arrayBuffer());
                 
                 // Decode using worker

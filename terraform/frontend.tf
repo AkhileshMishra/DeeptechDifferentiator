@@ -203,7 +203,8 @@ window.APP_CONFIG = {
     // HealthImaging configuration
     HEALTHIMAGING: {
         DATASTORE_ID: "${module.healthimaging.data_store_id}",
-        REGION: "${var.aws_region}"
+        REGION: "${var.aws_region}",
+        PROXY_URL: "https://${aws_cloudfront_distribution.healthimaging_proxy.domain_name}"
     },
     
     // Cognito configuration for OIDC authentication

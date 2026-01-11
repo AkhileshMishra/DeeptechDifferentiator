@@ -289,55 +289,52 @@ jobs:
           mkdir -p ohif-source/platform/app/public/config
           mkdir -p ohif-source/platform/viewer/public/config
           
-          # Generate the config content
-          cat > /tmp/healthimaging.js << EOF
+          # Generate the config content - using DICOMweb data source
+          # Note: AWS HealthImaging requires the ohif-aws-healthimaging extension
+          # For now, we use a basic config that allows manual study loading
+          cat > /tmp/healthimaging.js << 'CONFIGEOF'
           window.config = {
             routerBasename: '/',
-            dataSources: [
-              {
-                namespace: '@ohif/extension-default.dataSourcesModule.healthimaging',
-                sourceName: 'healthimaging',
-                configuration: {
-                  name: 'AWS HealthImaging',
-                  datastoreID: '${{ needs.deploy-dev.outputs.datastore_id }}',
-                  region: '${{ env.AWS_REGION }}',
-                  authConfig: {
-                    type: 'cognito',
-                    region: '${{ env.AWS_REGION }}',
-                    userPoolId: '${{ needs.deploy-dev.outputs.cognito_user_pool_id }}',
-                    userPoolWebClientId: '${{ needs.deploy-dev.outputs.cognito_client_id }}',
-                    identityPoolId: '${{ needs.deploy-dev.outputs.cognito_identity_pool_id }}',
-                    oauth: {
-                      domain: '${{ needs.deploy-dev.outputs.cognito_domain }}.auth.${{ env.AWS_REGION }}.amazoncognito.com',
-                      scope: ['email', 'openid', 'profile', 'aws.cognito.signin.user.admin'],
-                      redirectSignIn: '${{ needs.deploy-dev.outputs.ohif_url }}/callback',
-                      redirectSignOut: '${{ needs.deploy-dev.outputs.ohif_url }}/',
-                      responseType: 'code'
-                    }
-                  }
-                },
-              },
-            ],
-            defaultDataSourceName: 'healthimaging',
-            extensions: [
-              '@ohif/extension-default',
-              '@ohif/extension-cornerstone',
-              '@ohif/extension-measurement-tracking',
-              '@ohif/extension-cornerstone-dicom-sr',
-            ],
-            modes: [
-              '@ohif/mode-longitudinal',
-              '@ohif/mode-basic-dev-mode',
-            ],
             showStudyList: true,
             maxNumberOfWebWorkers: 4,
             showWarningMessageForCrossOrigin: false,
             strictZoomAndPan: false,
+            
+            // Data sources - using dicomweb for compatibility
+            dataSources: [
+              {
+                namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
+                sourceName: 'dicomweb',
+                configuration: {
+                  friendlyName: 'AWS HealthImaging',
+                  name: 'healthimaging',
+                  wadoUriRoot: '',
+                  qidoRoot: '',
+                  wadoRoot: '',
+                  qidoSupportsIncludeField: false,
+                  imageRendering: 'wadors',
+                  thumbnailRendering: 'wadors',
+                  enableStudyLazyLoad: true,
+                  supportsFuzzyMatching: false,
+                  supportsWildcard: false,
+                  staticWado: true,
+                  singlepart: 'bulkdata,video,pdf',
+                },
+              },
+            ],
+            
+            defaultDataSourceName: 'dicomweb',
+            
             investigationalUseDialog: {
               option: 'never',
             },
+            
+            // White labeling
+            whiteLabeling: {
+              createLogoComponentFn: function(React) { return null; },
+            },
           };
-          EOF
+          CONFIGEOF
           
           # Copy to all possible config locations
           cp /tmp/healthimaging.js ohif-source/platform/app/public/config/
@@ -346,6 +343,10 @@ jobs:
           # Also create default.js as fallback
           cp /tmp/healthimaging.js ohif-source/platform/app/public/config/default.js
           cp /tmp/healthimaging.js ohif-source/platform/viewer/public/config/default.js 2>/dev/null || true
+          
+          echo "Config files created:"
+          ls -la ohif-source/platform/app/public/config/ || true
+          cat /tmp/healthimaging.js
 
       - name: Cache OHIF Dependencies
         uses: actions/cache@v3

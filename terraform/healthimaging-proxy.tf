@@ -57,10 +57,6 @@ resource "aws_route_table_association" "healthimaging_public" {
   route_table_id = aws_route_table.healthimaging_public.id
 }
 
-data "aws_availability_zones" "available" {
-  state = "available"
-}
-
 # ============================================================================
 # SECURITY GROUPS
 # ============================================================================

@@ -51,9 +51,8 @@ exports.handler = async (event) => {
                 // Clear query string since we moved imageFrameId to body
                 request.querystring = '';
                 
-                // Set required headers for POST with JSON body
+                // Set content-type for JSON body (content-length is managed by CloudFront)
                 request.headers['content-type'] = [{ key: 'Content-Type', value: 'application/json' }];
-                request.headers['content-length'] = [{ key: 'Content-Length', value: String(Buffer.byteLength(body)) }];
             }
         } else if (request.body && request.body.data) {
             // Handle existing POST requests

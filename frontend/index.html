@@ -886,15 +886,16 @@
                 
                 const fetchStart = performance.now();
                 
-                // Use CloudFront proxy for low-latency cached access
-                // The proxy handles SigV4 signing via Lambda@Edge
-                const url = `${proxyUrl}/datastore/${datastoreId}/imageSet/${imageSetId}/getImageFrame?imageFrameId=${frame.imageFrameId}`;
+                // Use CloudFront proxy with Lambda@Edge for SigV4 signing
+                // POST request with JSON body as required by HealthImaging API
+                const url = `${proxyUrl}/datastore/${datastoreId}/imageSet/${imageSetId}/getImageFrame`;
                 
                 const response = await fetch(url, {
-                    method: 'GET',
+                    method: 'POST',
                     headers: {
-                        'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
-                    }
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ imageFrameId: frame.imageFrameId })
                 });
                 
                 if (!response.ok) {

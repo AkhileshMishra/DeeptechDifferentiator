@@ -1,9 +1,6 @@
 /**
  * Lambda@Edge Origin Request Handler
  * Signs requests to AWS HealthImaging using SigV4
- * 
- * Converts GET requests with query params to POST requests with JSON body
- * for GetImageFrame API (required by HealthImaging API)
  */
 
 const crypto = require('crypto');
@@ -23,40 +20,14 @@ exports.handler = async (event) => {
         };
         
         const host = `runtime-medical-imaging.${REGION}.amazonaws.com`;
-        let method = request.method;
-        let path = request.uri;
-        let body = '';
+        const method = request.method;
+        const path = request.uri;
+        const querystring = request.querystring || '';
         
-        // Check if this is a getImageFrame request (needs GET→POST conversion)
-        // CloudFront sends GET for caching, but HealthImaging API requires POST
-        if (path.includes('/getImageFrame') && request.querystring) {
-            const params = new URLSearchParams(request.querystring);
-            const imageFrameId = params.get('imageFrameId');
-            
-            if (imageFrameId) {
-                // Convert to POST with JSON body
-                method = 'POST';
-                body = JSON.stringify({ imageFrameId: imageFrameId });
-                
-                // Update request method
-                request.method = 'POST';
-                
-                // Set body - must use base64 encoding for origin-request
-                request.body = {
-                    action: 'replace',
-                    encoding: 'base64',
-                    data: Buffer.from(body).toString('base64')
-                };
-                
-                // Clear query string since we moved imageFrameId to body
-                request.querystring = '';
-                
-                // Set content-type for JSON body (content-length is managed by CloudFront)
-                request.headers['content-type'] = [{ key: 'Content-Type', value: 'application/json' }];
-            }
-        } else if (request.body && request.body.data) {
-            // Handle existing POST requests
-            body = request.body.encoding === 'base64' 
+        // Get body for POST requests
+        let body = '';
+        if (request.body && request.body.data) {
+            body = request.body.encoding === 'base64'
                 ? Buffer.from(request.body.data, 'base64').toString('utf8')
                 : request.body.data;
         }
@@ -66,7 +37,7 @@ exports.handler = async (event) => {
             method,
             host,
             path,
-            querystring: request.querystring || '',
+            querystring,
             body,
             credentials,
             region: REGION,

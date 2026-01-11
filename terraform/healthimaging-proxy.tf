@@ -155,19 +155,19 @@ resource "aws_cloudfront_response_headers_policy" "healthimaging" {
   cors_config {
     access_control_allow_credentials = false
     access_control_max_age_sec       = 86400
-    origin_override                  = true
+    origin_override                  = false  # Don't override Lambda@Edge CORS headers
     
     access_control_allow_headers {
       items = ["*"]
     }
     access_control_allow_methods {
-      items = ["GET", "POST", "OPTIONS"]
+      items = ["GET", "POST", "OPTIONS", "HEAD"]
     }
     access_control_allow_origins {
-      items = [
-        "https://${aws_cloudfront_distribution.frontend.domain_name}",
-        "http://localhost:3000"
-      ]
+      items = ["*"]  # Allow all origins - Lambda@Edge validates
+    }
+    access_control_expose_headers {
+      items = ["Content-Length", "Content-Type"]
     }
   }
 }

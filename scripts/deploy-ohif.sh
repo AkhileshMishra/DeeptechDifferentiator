@@ -140,7 +140,23 @@ APP_CONFIG=config/healthimaging.js yarn build
 # Deploy to S3
 echo ""
 echo "Deploying to S3..."
-aws s3 sync platform/app/dist/ "s3://$OHIF_BUCKET/" --delete
+
+# Find the correct dist directory
+if [ -d "platform/app/dist" ]; then
+    DIST_PATH="platform/app/dist"
+elif [ -d "platform/viewer/dist" ]; then
+    DIST_PATH="platform/viewer/dist"
+else
+    DIST_PATH=$(find platform -type d -name "dist" -print -quit 2>/dev/null || echo "")
+    if [ -z "$DIST_PATH" ]; then
+        echo "Error: Could not find dist directory"
+        find . -type d -name "dist" | head -5
+        exit 1
+    fi
+fi
+
+echo "Using dist path: $DIST_PATH"
+aws s3 sync "$DIST_PATH/" "s3://$OHIF_BUCKET/" --delete
 
 # Invalidate CloudFront cache
 if [ -n "$DISTRIBUTION_ID" ]; then

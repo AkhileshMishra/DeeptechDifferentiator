@@ -150,7 +150,12 @@ jobs:
 
       - name: Generate OHIF Configuration
         run: |
-          cat > ohif-source/platform/app/public/config/healthimaging.js << 'EOF'
+          # Create config in multiple possible locations for compatibility
+          mkdir -p ohif-source/platform/app/public/config
+          mkdir -p ohif-source/platform/viewer/public/config
+          
+          # Generate the config content
+          cat > /tmp/healthimaging.js << EOF
           window.config = {
             routerBasename: '/',
             dataSources: [
@@ -198,6 +203,14 @@ jobs:
             },
           };
           EOF
+          
+          # Copy to all possible config locations
+          cp /tmp/healthimaging.js ohif-source/platform/app/public/config/
+          cp /tmp/healthimaging.js ohif-source/platform/viewer/public/config/ 2>/dev/null || true
+          
+          # Also create default.js as fallback
+          cp /tmp/healthimaging.js ohif-source/platform/app/public/config/default.js
+          cp /tmp/healthimaging.js ohif-source/platform/viewer/public/config/default.js 2>/dev/null || true
 
       - name: Cache OHIF Dependencies
         uses: actions/cache@v3
@@ -218,14 +231,46 @@ jobs:
       - name: Build OHIF Viewer
         run: |
           cd ohif-source
-          APP_CONFIG=config/healthimaging.js yarn build
+          # Try different build approaches based on OHIF version
+          if [ -f "yarn.lock" ]; then
+            PUBLIC_URL=/ APP_CONFIG=config/healthimaging.js yarn run build || yarn build
+          else
+            npm run build
+          fi
+          
+          # List what was built
+          echo "Build output directories:"
+          find . -type d -name "dist" | head -10
         timeout-minutes: 20
         env:
           NODE_OPTIONS: "--max_old_space_size=4096"
 
+      - name: Find OHIF Build Output
+        id: find-dist
+        run: |
+          # OHIF build output location varies by version
+          if [ -d "ohif-source/platform/app/dist" ]; then
+            echo "dist_path=ohif-source/platform/app/dist" >> $GITHUB_OUTPUT
+          elif [ -d "ohif-source/platform/viewer/dist" ]; then
+            echo "dist_path=ohif-source/platform/viewer/dist" >> $GITHUB_OUTPUT
+          elif [ -d "ohif-source/dist" ]; then
+            echo "dist_path=ohif-source/dist" >> $GITHUB_OUTPUT
+          else
+            echo "Looking for dist directory..."
+            find ohif-source -type d -name "dist" | head -5
+            DIST_PATH=$(find ohif-source/platform -type d -name "dist" -print -quit 2>/dev/null || echo "")
+            if [ -n "$DIST_PATH" ]; then
+              echo "dist_path=$DIST_PATH" >> $GITHUB_OUTPUT
+            else
+              echo "Error: Could not find OHIF dist directory"
+              exit 1
+            fi
+          fi
+          echo "Using dist path: $(cat $GITHUB_OUTPUT | grep dist_path)"
+
       - name: Deploy OHIF to S3
         run: |
-          aws s3 sync ohif-source/platform/app/dist/ s3://${{ steps.config.outputs.ohif_bucket }}/ --delete
+          aws s3 sync ${{ steps.find-dist.outputs.dist_path }}/ s3://${{ steps.config.outputs.ohif_bucket }}/ --delete
 
       - name: Invalidate OHIF CloudFront Cache
         run: |

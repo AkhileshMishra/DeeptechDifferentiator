@@ -60,15 +60,23 @@ def lambda_handler(event, context):
         # Get detailed metadata (DICOM tags)
         metadata_response = ahi_client.get_image_set_metadata(**get_params)
         
-        # Parse the metadata blob
+        # Parse the metadata blob - it may be gzip compressed
         metadata_blob = metadata_response.get('imageSetMetadataBlob')
         if metadata_blob:
             # The blob is returned as a streaming body, read it
             metadata_content = metadata_blob.read()
+            
+            # Check if it's gzip compressed (starts with 0x1f 0x8b)
+            if metadata_content[:2] == b'\x1f\x8b':
+                import gzip
+                metadata_content = gzip.decompress(metadata_content)
+            
             try:
                 dicom_metadata = json.loads(metadata_content)
-            except json.JSONDecodeError:
-                dicom_metadata = {'raw': metadata_content.decode('utf-8', errors='ignore')}
+            except json.JSONDecodeError as e:
+                print(f"JSON decode error: {e}")
+                print(f"Content preview: {metadata_content[:500]}")
+                dicom_metadata = {'raw': metadata_content.decode('utf-8', errors='ignore')[:1000]}
         else:
             dicom_metadata = {}
         
@@ -105,7 +113,9 @@ def lambda_handler(event, context):
         return error_response(403, "Access denied to image set")
         
     except Exception as e:
+        import traceback
         print(f"Error getting image set metadata: {str(e)}")
+        print(f"Traceback: {traceback.format_exc()}")
         return error_response(500, f"Error getting metadata: {str(e)}")
 
 

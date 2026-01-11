@@ -8,11 +8,14 @@
     <!-- Load configuration first -->
     <script src="config.js"></script>
     
-    <!-- AWS SDK for Cognito authentication -->
+    <!-- AWS SDK for direct HealthImaging API calls -->
     <script src="https://sdk.amazonaws.com/js/aws-sdk-2.1472.0.min.js"></script>
     
-    <!-- Amazon Cognito Identity SDK -->
-    <script src="https://cdn.jsdelivr.net/npm/amazon-cognito-identity-js@6/dist/amazon-cognito-identity.min.js"></script>
+    <!-- Cornerstone.js for medical image rendering -->
+    <script src="https://unpkg.com/cornerstone-core@2.6.1/dist/cornerstone.min.js"></script>
+    <script src="https://unpkg.com/cornerstone-math@0.1.10/dist/cornerstoneMath.min.js"></script>
+    <script src="https://unpkg.com/cornerstone-tools@6.0.10/dist/cornerstoneTools.min.js"></script>
+    <script src="https://unpkg.com/hammerjs@2.0.8/hammer.min.js"></script>
     
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -93,6 +96,12 @@
             box-shadow: 0 4px 12px rgba(0,212,255,0.3);
         }
         
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
         /* Main Layout */
         .main-container {
             display: flex;
@@ -165,6 +174,7 @@
             font-size: 0.85em;
             color: var(--accent-primary);
             margin-bottom: 8px;
+            word-break: break-all;
         }
         
         .image-set-meta {
@@ -173,12 +183,6 @@
             gap: 10px;
             font-size: 0.8em;
             color: var(--text-secondary);
-        }
-        
-        .meta-item {
-            display: flex;
-            align-items: center;
-            gap: 5px;
         }
         
         .status-badge {
@@ -190,7 +194,6 @@
         
         .status-active { background: var(--success); color: white; }
         .status-pending { background: var(--warning); color: black; }
-        .status-error { background: var(--error); color: white; }
         
         /* Viewer Area */
         .viewer-area {
@@ -207,12 +210,15 @@
             justify-content: space-between;
             align-items: center;
             border-bottom: 1px solid var(--border);
+            flex-wrap: wrap;
+            gap: 10px;
         }
         
         .viewer-info {
             display: flex;
             align-items: center;
             gap: 20px;
+            flex-wrap: wrap;
         }
         
         .viewer-actions {
@@ -220,16 +226,16 @@
             gap: 10px;
         }
         
-        /* OHIF Viewer iframe */
+        /* Cornerstone Viewer Container */
         .viewer-container {
             flex: 1;
             position: relative;
+            background: #000;
         }
         
-        .viewer-iframe {
+        #dicom-viewer {
             width: 100%;
             height: 100%;
-            border: none;
         }
         
         .viewer-placeholder {
@@ -245,6 +251,56 @@
             font-size: 4em;
             margin-bottom: 20px;
             opacity: 0.3;
+        }
+        
+        /* Frame Navigation */
+        .frame-nav {
+            background: var(--bg-secondary);
+            padding: 10px 20px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            border-top: 1px solid var(--border);
+        }
+        
+        .frame-slider {
+            flex: 1;
+            -webkit-appearance: none;
+            height: 6px;
+            background: var(--border);
+            border-radius: 3px;
+            outline: none;
+        }
+        
+        .frame-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            background: var(--accent-primary);
+            border-radius: 50%;
+            cursor: pointer;
+        }
+        
+        .frame-info {
+            font-size: 0.9em;
+            color: var(--text-secondary);
+            min-width: 100px;
+        }
+        
+        /* Metrics Panel */
+        .metrics-panel {
+            background: rgba(0,0,0,0.7);
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            padding: 10px 15px;
+            border-radius: 6px;
+            font-size: 0.8em;
+            color: var(--text-secondary);
+        }
+        
+        .metrics-panel div {
+            margin: 3px 0;
         }
         
         /* Login Screen */
@@ -324,17 +380,26 @@
             to { transform: translateX(0); opacity: 1; }
         }
         
-        /* Responsive */
-        @media (max-width: 768px) {
-            .main-container { flex-direction: column; }
-            .sidebar { width: 100%; height: 40%; }
-            .viewer-area { height: 60%; }
+        /* Series/Instance selector */
+        .series-selector {
+            padding: 10px;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .series-selector select {
+            width: 100%;
+            padding: 8px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--text-primary);
+            font-size: 0.9em;
         }
     </style>
 </head>
 <body>
     <div id="app">
-        <!-- Login Screen (shown when not authenticated) -->
+        <!-- Login Screen -->
         <div id="login-screen" class="login-screen" style="display: none;">
             <div class="login-box">
                 <h1 class="logo">Healthcare Imaging MLOps</h1>
@@ -345,9 +410,8 @@
             </div>
         </div>
         
-        <!-- Main Application (shown when authenticated) -->
+        <!-- Main Application -->
         <div id="main-app" style="display: none;">
-            <!-- Header -->
             <header class="header">
                 <div class="logo">Healthcare Imaging MLOps</div>
                 <div class="user-info">
@@ -356,34 +420,26 @@
                 </div>
             </header>
             
-            <!-- Main Content -->
             <div class="main-container">
-                <!-- Sidebar: Image Set List -->
+                <!-- Sidebar -->
                 <aside class="sidebar">
                     <div class="sidebar-header">
                         <h2>Image Sets</h2>
-                        <input type="text" class="search-box" placeholder="Search by ID or patient..." id="search-input" oninput="filterImageSets()">
+                        <input type="text" class="search-box" placeholder="Search..." id="search-input" oninput="filterImageSets()">
                     </div>
                     
                     <!-- Upload Section -->
                     <div style="padding: 15px; border-bottom: 1px solid var(--border);">
-                        <input type="file" id="dicom-upload" accept=".dcm,.dicom" style="display: none;" onchange="handleFileUpload(event)">
+                        <input type="file" id="dicom-upload" accept=".dcm,.dicom" multiple style="display: none;" onchange="handleFileUpload(event)">
                         <button class="btn btn-primary" onclick="document.getElementById('dicom-upload').click()" style="width: 100%;">
-                            📤 Upload DICOM File
+                            📤 Upload DICOM Files
                         </button>
-                        <div id="upload-progress" style="display: none; margin-top: 10px;">
-                            <div style="background: var(--border); border-radius: 4px; overflow: hidden;">
-                                <div id="upload-progress-bar" style="height: 4px; background: var(--accent-primary); width: 0%; transition: width 0.3s;"></div>
-                            </div>
-                            <div id="upload-status" style="font-size: 0.8em; color: var(--text-secondary); margin-top: 5px;"></div>
-                        </div>
                     </div>
                     
                     <div class="image-set-list" id="image-set-list">
-                        <div class="loading">
-                            <div class="spinner"></div>
-                        </div>
+                        <div class="loading"><div class="spinner"></div></div>
                     </div>
+                    
                     <div style="padding: 15px; border-top: 1px solid var(--border);">
                         <button class="btn btn-secondary" onclick="refreshImageSets()" style="width: 100%;">
                             ↻ Refresh List
@@ -396,32 +452,45 @@
                     <div class="viewer-toolbar">
                         <div class="viewer-info">
                             <span id="current-study-info">No study selected</span>
+                            <span id="series-info" style="color: var(--text-secondary);"></span>
                         </div>
                         <div class="viewer-actions">
-                            <button class="btn btn-secondary" onclick="openInNewTab()" id="btn-new-tab" disabled>
-                                Open in New Tab
+                            <button class="btn btn-secondary" onclick="resetView()" id="btn-reset" disabled>
+                                Reset View
                             </button>
                             <button class="btn btn-primary" onclick="triggerPipeline()" id="btn-pipeline" disabled>
                                 Verify & Train Model
                             </button>
                         </div>
                     </div>
+                    
                     <div class="viewer-container" id="viewer-container">
                         <div class="viewer-placeholder" id="viewer-placeholder">
                             <div class="viewer-placeholder-icon">🏥</div>
                             <h3>Select an Image Set</h3>
-                            <p>Choose an image set from the list to view in OHIF</p>
+                            <p>Choose an image set from the list to view</p>
                         </div>
-                        <iframe id="ohif-viewer" class="viewer-iframe" style="display: none;"></iframe>
+                        <div id="dicom-viewer" style="display: none;"></div>
+                        <div class="metrics-panel" id="metrics-panel" style="display: none;">
+                            <div>Fetch: <span id="metric-fetch">-</span> ms</div>
+                            <div>Decode: <span id="metric-decode">-</span> ms</div>
+                            <div>Size: <span id="metric-size">-</span></div>
+                        </div>
+                    </div>
+                    
+                    <div class="frame-nav" id="frame-nav" style="display: none;">
+                        <button class="btn btn-secondary" onclick="prevFrame()">◀ Prev</button>
+                        <input type="range" class="frame-slider" id="frame-slider" min="0" max="0" value="0" oninput="goToFrame(this.value)">
+                        <span class="frame-info" id="frame-info">Frame 1 / 1</span>
+                        <button class="btn btn-secondary" onclick="nextFrame()">Next ▶</button>
                     </div>
                 </main>
             </div>
         </div>
     </div>
     
-    <!-- Toast Container -->
     <div class="toast-container" id="toast-container"></div>
-    
+
     <script>
         // ============================================================================
         // Application State
@@ -429,8 +498,14 @@
         
         let currentUser = null;
         let awsCredentials = null;
+        let healthImagingClient = null;
         let imageSets = [];
         let selectedImageSet = null;
+        let currentMetadata = null;
+        let currentFrames = [];
+        let currentFrameIndex = 0;
+        let htj2kWorker = null;
+        let cornerstoneElement = null;
         
         // ============================================================================
         // Initialization
@@ -439,29 +514,35 @@
         document.addEventListener('DOMContentLoaded', async () => {
             console.log('Healthcare Imaging MLOps Platform initializing...');
             
+            // Initialize HTJ2K decoder worker
+            initWorker();
+            
             // Check for OAuth callback
             if (window.location.search.includes('code=')) {
                 await handleOAuthCallback();
                 return;
             }
             
-            // Check for existing session
             await checkAuthStatus();
         });
         
+        function initWorker() {
+            htj2kWorker = new Worker('static/js/htj2k-worker.js');
+            htj2kWorker.onmessage = handleWorkerMessage;
+            htj2kWorker.onerror = (e) => console.error('Worker error:', e);
+        }
+        
         // ============================================================================
-        // Authentication (Cognito OIDC)
+        // Authentication
         // ============================================================================
         
         async function checkAuthStatus() {
             try {
-                // Check for tokens in localStorage
                 const idToken = localStorage.getItem('idToken');
                 const accessToken = localStorage.getItem('accessToken');
                 const userEmail = localStorage.getItem('userEmail');
                 
                 if (idToken && accessToken) {
-                    // Validate token (check expiry)
                     const payload = parseJwt(idToken);
                     if (payload.exp * 1000 > Date.now()) {
                         currentUser = { email: userEmail, idToken, accessToken };
@@ -470,10 +551,7 @@
                         return;
                     }
                 }
-                
-                // No valid session, show login
                 showLoginScreen();
-                
             } catch (error) {
                 console.error('Auth check failed:', error);
                 showLoginScreen();
@@ -487,7 +565,6 @@
                 `response_type=${config.OAUTH.RESPONSE_TYPE}&` +
                 `scope=${config.OAUTH.SCOPE.join('+')}&` +
                 `redirect_uri=${encodeURIComponent(config.OAUTH.REDIRECT_SIGN_IN)}`;
-            
             window.location.href = authUrl;
         }
         
@@ -495,19 +572,12 @@
             try {
                 const urlParams = new URLSearchParams(window.location.search);
                 const code = urlParams.get('code');
-                
-                if (!code) {
-                    throw new Error('No authorization code received');
-                }
+                if (!code) throw new Error('No authorization code');
                 
                 const config = window.APP_CONFIG.COGNITO;
-                
-                // Exchange code for tokens
                 const tokenResponse = await fetch(`https://${config.DOMAIN}/oauth2/token`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded'
-                    },
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                     body: new URLSearchParams({
                         grant_type: 'authorization_code',
                         client_id: config.CLIENT_ID,
@@ -516,84 +586,63 @@
                     })
                 });
                 
-                if (!tokenResponse.ok) {
-                    throw new Error('Token exchange failed');
-                }
+                if (!tokenResponse.ok) throw new Error('Token exchange failed');
                 
                 const tokens = await tokenResponse.json();
-                
-                // Parse user info from ID token
                 const payload = parseJwt(tokens.id_token);
                 
-                // Store tokens
                 localStorage.setItem('idToken', tokens.id_token);
                 localStorage.setItem('accessToken', tokens.access_token);
                 localStorage.setItem('refreshToken', tokens.refresh_token);
                 localStorage.setItem('userEmail', payload.email);
                 
-                // Clear URL and reload
                 window.history.replaceState({}, document.title, window.location.pathname);
                 window.location.reload();
-                
             } catch (error) {
                 console.error('OAuth callback failed:', error);
-                showToast('Authentication failed: ' + error.message, 'error');
+                showToast('Authentication failed', 'error');
                 showLoginScreen();
             }
         }
         
         function signOut() {
-            // Clear local storage
-            localStorage.removeItem('idToken');
-            localStorage.removeItem('accessToken');
-            localStorage.removeItem('refreshToken');
-            localStorage.removeItem('userEmail');
-            
-            // Redirect to Cognito logout
+            localStorage.clear();
             const config = window.APP_CONFIG.COGNITO;
-            const logoutUrl = `https://${config.DOMAIN}/logout?` +
+            window.location.href = `https://${config.DOMAIN}/logout?` +
                 `client_id=${config.CLIENT_ID}&` +
                 `logout_uri=${encodeURIComponent(config.OAUTH.REDIRECT_SIGN_OUT)}`;
-            
-            window.location.href = logoutUrl;
         }
         
         async function initializeAWSCredentials() {
-            try {
-                const config = window.APP_CONFIG.COGNITO;
-                const idToken = localStorage.getItem('idToken');
-                
-                // Configure AWS SDK
-                AWS.config.region = config.REGION;
-                
-                // Create Cognito Identity credentials
-                const logins = {};
-                logins[`cognito-idp.${config.REGION}.amazonaws.com/${config.USER_POOL_ID}`] = idToken;
-                
-                AWS.config.credentials = new AWS.CognitoIdentityCredentials({
-                    IdentityPoolId: config.IDENTITY_POOL_ID,
-                    Logins: logins
-                });
-                
-                // Get credentials
-                await new Promise((resolve, reject) => {
-                    AWS.config.credentials.get((err) => {
-                        if (err) reject(err);
-                        else resolve();
-                    });
-                });
-                
-                awsCredentials = AWS.config.credentials;
-                console.log('AWS credentials initialized');
-                
-            } catch (error) {
-                console.error('Failed to initialize AWS credentials:', error);
-                showToast('Failed to initialize AWS credentials', 'error');
-            }
+            const config = window.APP_CONFIG.COGNITO;
+            const idToken = localStorage.getItem('idToken');
+            
+            AWS.config.region = config.REGION;
+            
+            const logins = {};
+            logins[`cognito-idp.${config.REGION}.amazonaws.com/${config.USER_POOL_ID}`] = idToken;
+            
+            AWS.config.credentials = new AWS.CognitoIdentityCredentials({
+                IdentityPoolId: config.IDENTITY_POOL_ID,
+                Logins: logins
+            });
+            
+            await new Promise((resolve, reject) => {
+                AWS.config.credentials.get((err) => err ? reject(err) : resolve());
+            });
+            
+            awsCredentials = AWS.config.credentials;
+            
+            // Initialize HealthImaging client
+            healthImagingClient = new AWS.MedicalImaging({
+                region: window.APP_CONFIG.AWS_REGION
+            });
+            
+            console.log('AWS credentials initialized');
         }
         
         // ============================================================================
-        // UI State Management
+        // UI State
         // ============================================================================
         
         function showLoginScreen() {
@@ -605,9 +654,34 @@
             document.getElementById('login-screen').style.display = 'none';
             document.getElementById('main-app').style.display = 'block';
             document.getElementById('user-email').textContent = localStorage.getItem('userEmail');
-            
-            // Load image sets
+            initCornerstone();
             loadImageSets();
+        }
+        
+        // ============================================================================
+        // Cornerstone Initialization
+        // ============================================================================
+        
+        function initCornerstone() {
+            cornerstoneElement = document.getElementById('dicom-viewer');
+            cornerstone.enable(cornerstoneElement);
+            
+            // Add mouse wheel scroll for frames
+            cornerstoneElement.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                if (e.deltaY < 0) prevFrame();
+                else nextFrame();
+            });
+            
+            // Initialize cornerstone tools
+            cornerstoneTools.init();
+            cornerstoneTools.addTool(cornerstoneTools.WwwcTool);
+            cornerstoneTools.addTool(cornerstoneTools.ZoomTool);
+            cornerstoneTools.addTool(cornerstoneTools.PanTool);
+            
+            cornerstoneTools.setToolActive('Wwwc', { mouseButtonMask: 1 });
+            cornerstoneTools.setToolActive('Zoom', { mouseButtonMask: 2 });
+            cornerstoneTools.setToolActive('Pan', { mouseButtonMask: 4 });
         }
         
         // ============================================================================
@@ -620,45 +694,32 @@
             
             try {
                 const response = await fetch(`${window.APP_CONFIG.API_ENDPOINT}/list-image-sets`);
-                
-                if (!response.ok) {
-                    throw new Error('Failed to load image sets');
-                }
+                if (!response.ok) throw new Error('Failed to load');
                 
                 const data = await response.json();
                 imageSets = data.imageSets || [];
-                
                 renderImageSetList();
-                
             } catch (error) {
                 console.error('Failed to load image sets:', error);
-                listEl.innerHTML = `
-                    <div style="padding: 20px; text-align: center; color: var(--text-secondary);">
-                        <p>Failed to load image sets</p>
-                        <button class="btn btn-secondary" onclick="loadImageSets()" style="margin-top: 10px;">
-                            Retry
-                        </button>
-                    </div>
-                `;
+                listEl.innerHTML = `<div style="padding: 20px; text-align: center; color: var(--text-secondary);">
+                    <p>Failed to load image sets</p>
+                    <button class="btn btn-secondary" onclick="loadImageSets()" style="margin-top: 10px;">Retry</button>
+                </div>`;
             }
         }
         
         function renderImageSetList() {
             const listEl = document.getElementById('image-set-list');
+            const searchTerm = document.getElementById('search-input').value.toLowerCase();
             
             if (imageSets.length === 0) {
-                listEl.innerHTML = `
-                    <div style="padding: 20px; text-align: center; color: var(--text-secondary);">
-                        <p>No image sets found</p>
-                        <p style="font-size: 0.85em; margin-top: 10px;">
-                            Upload DICOM files to the S3 bucket to get started
-                        </p>
-                    </div>
-                `;
+                listEl.innerHTML = `<div style="padding: 20px; text-align: center; color: var(--text-secondary);">
+                    <p>No image sets found</p>
+                    <p style="font-size: 0.85em; margin-top: 10px;">Upload DICOM files to get started</p>
+                </div>`;
                 return;
             }
             
-            const searchTerm = document.getElementById('search-input').value.toLowerCase();
             const filtered = imageSets.filter(set => {
                 const id = (set.imageSetId || '').toLowerCase();
                 const patient = (set.DICOMTags?.PatientID || '').toLowerCase();
@@ -670,147 +731,289 @@
                      onclick="selectImageSet('${set.imageSetId}')">
                     <div class="image-set-id">${set.imageSetId}</div>
                     <div class="image-set-meta">
-                        <span class="meta-item">
-                            <span class="status-badge status-${set.imageSetState === 'ACTIVE' ? 'active' : 'pending'}">
-                                ${set.imageSetState || 'Unknown'}
-                            </span>
+                        <span class="status-badge status-${set.imageSetState === 'ACTIVE' ? 'active' : 'pending'}">
+                            ${set.imageSetState || 'Unknown'}
                         </span>
-                        ${set.DICOMTags?.Modality ? `<span class="meta-item">📷 ${set.DICOMTags.Modality}</span>` : ''}
-                        ${set.createdAt ? `<span class="meta-item">📅 ${new Date(set.createdAt).toLocaleDateString()}</span>` : ''}
+                        ${set.DICOMTags?.Modality ? `<span>📷 ${set.DICOMTags.Modality}</span>` : ''}
+                        ${set.createdAt ? `<span>📅 ${new Date(set.createdAt).toLocaleDateString()}</span>` : ''}
                     </div>
                 </div>
             `).join('');
         }
         
-        function filterImageSets() {
-            renderImageSetList();
-        }
-        
-        function refreshImageSets() {
-            loadImageSets();
-            showToast('Refreshing image sets...', 'info');
-        }
-        
+        function filterImageSets() { renderImageSetList(); }
+        function refreshImageSets() { loadImageSets(); showToast('Refreshing...', 'info'); }
+
         // ============================================================================
-        // Image Set Selection & Viewer
+        // Image Viewing - Direct HealthImaging API
         // ============================================================================
         
         async function selectImageSet(imageSetId) {
             selectedImageSet = imageSets.find(s => s.imageSetId === imageSetId);
             renderImageSetList();
             
-            // Update toolbar
-            document.getElementById('current-study-info').textContent = `Image Set: ${imageSetId}`;
-            document.getElementById('btn-new-tab').disabled = false;
+            document.getElementById('current-study-info').textContent = `Loading: ${imageSetId.substring(0, 20)}...`;
             document.getElementById('btn-pipeline').disabled = false;
             
-            // Load in OHIF viewer
-            loadOHIFViewer(imageSetId);
-        }
-        
-        function loadOHIFViewer(imageSetId) {
-            const placeholder = document.getElementById('viewer-placeholder');
-            const iframe = document.getElementById('ohif-viewer');
-            
-            // Build OHIF URL with parameters
-            const ohifConfig = window.APP_CONFIG.OHIF;
-            const healthImagingConfig = window.APP_CONFIG.HEALTHIMAGING;
-            
-            // OHIF URL with HealthImaging parameters
-            const viewerUrl = `${ohifConfig.VIEWER_URL}?` +
-                `datastoreId=${healthImagingConfig.DATASTORE_ID}&` +
-                `imageSetId=${imageSetId}`;
-            
-            // Show iframe, hide placeholder
-            placeholder.style.display = 'none';
-            iframe.style.display = 'block';
-            iframe.src = viewerUrl;
-            
-            showToast('Loading image in OHIF viewer...', 'info');
-        }
-        
-        function openInNewTab() {
-            if (!selectedImageSet) return;
-            
-            const ohifConfig = window.APP_CONFIG.OHIF;
-            const healthImagingConfig = window.APP_CONFIG.HEALTHIMAGING;
-            
-            const viewerUrl = `${ohifConfig.VIEWER_URL}?` +
-                `datastoreId=${healthImagingConfig.DATASTORE_ID}&` +
-                `imageSetId=${selectedImageSet.imageSetId}`;
-            
-            window.open(viewerUrl, '_blank');
-        }
-        
-        // ============================================================================
-        // ML Pipeline Integration
-        // ============================================================================
-        
-        async function triggerPipeline() {
-            if (!selectedImageSet) {
-                showToast('Please select an image set first', 'error');
-                return;
-            }
-            
-            const btn = document.getElementById('btn-pipeline');
-            btn.disabled = true;
-            btn.textContent = 'Starting Pipeline...';
+            showToast('Loading image set metadata...', 'info');
             
             try {
-                const response = await fetch(`${window.APP_CONFIG.API_ENDPOINT}/trigger-pipeline`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        imageSetId: selectedImageSet.imageSetId
-                    })
-                });
+                // Get metadata from our Lambda (which calls GetImageSetMetadata)
+                const response = await fetch(
+                    `${window.APP_CONFIG.API_ENDPOINT}/get-image-set-metadata?imageSetId=${imageSetId}`
+                );
                 
-                if (!response.ok) {
-                    throw new Error('Failed to trigger pipeline');
+                if (!response.ok) throw new Error('Failed to get metadata');
+                
+                currentMetadata = await response.json();
+                console.log('Metadata loaded:', currentMetadata);
+                
+                // Extract frames from metadata
+                currentFrames = extractFrames(currentMetadata);
+                console.log(`Found ${currentFrames.length} frames`);
+                
+                if (currentFrames.length === 0) {
+                    showToast('No image frames found in this image set', 'warning');
+                    return;
                 }
                 
-                const result = await response.json();
-                showToast('ML Pipeline started successfully!', 'success');
-                console.log('Pipeline execution:', result);
+                // Update UI
+                const study = currentMetadata.study || {};
+                document.getElementById('current-study-info').textContent = 
+                    `${study.PatientName || 'Unknown'} - ${study.Modality || ''} - ${study.StudyDescription || 'Study'}`;
+                document.getElementById('series-info').textContent = 
+                    `${currentFrames.length} frame(s)`;
+                
+                // Setup frame navigation
+                const slider = document.getElementById('frame-slider');
+                slider.max = currentFrames.length - 1;
+                slider.value = 0;
+                currentFrameIndex = 0;
+                
+                document.getElementById('frame-nav').style.display = currentFrames.length > 1 ? 'flex' : 'none';
+                document.getElementById('btn-reset').disabled = false;
+                
+                // Show viewer
+                document.getElementById('viewer-placeholder').style.display = 'none';
+                document.getElementById('dicom-viewer').style.display = 'block';
+                document.getElementById('metrics-panel').style.display = 'block';
+                
+                // Load first frame
+                await loadFrame(0);
                 
             } catch (error) {
-                console.error('Pipeline trigger failed:', error);
-                showToast('Failed to start pipeline: ' + error.message, 'error');
-            } finally {
-                btn.disabled = false;
-                btn.textContent = 'Verify & Train Model';
+                console.error('Failed to load image set:', error);
+                showToast('Failed to load image set: ' + error.message, 'error');
+            }
+        }
+        
+        function extractFrames(metadata) {
+            const frames = [];
+            const dicomMetadata = metadata.dicomMetadata || {};
+            
+            // Navigate: Patient -> Studies -> Series -> Instances -> ImageFrames
+            if (dicomMetadata.Patient) {
+                const patient = dicomMetadata.Patient;
+                const studies = patient.Studies || {};
+                
+                for (const [studyUid, study] of Object.entries(studies)) {
+                    const series = study.Series || {};
+                    
+                    for (const [seriesUid, seriesData] of Object.entries(series)) {
+                        const instances = seriesData.Instances || {};
+                        const seriesDicom = seriesData.DICOM || {};
+                        
+                        for (const [instanceUid, instance] of Object.entries(instances)) {
+                            const imageFrames = instance.ImageFrames || [];
+                            const instanceDicom = instance.DICOM || {};
+                            
+                            imageFrames.forEach((frame, idx) => {
+                                frames.push({
+                                    imageFrameId: frame.ID,
+                                    studyUid,
+                                    seriesUid,
+                                    instanceUid,
+                                    frameIndex: idx,
+                                    dicom: {
+                                        ...instanceDicom,
+                                        Modality: seriesDicom.Modality
+                                    },
+                                    frameInfo: frame
+                                });
+                            });
+                        }
+                    }
+                }
+            }
+            
+            return frames;
+        }
+        
+        async function loadFrame(index) {
+            if (index < 0 || index >= currentFrames.length) return;
+            
+            currentFrameIndex = index;
+            const frame = currentFrames[index];
+            
+            document.getElementById('frame-info').textContent = 
+                `Frame ${index + 1} / ${currentFrames.length}`;
+            document.getElementById('frame-slider').value = index;
+            
+            try {
+                // Get image frame directly from HealthImaging API
+                const datastoreId = window.APP_CONFIG.HEALTHIMAGING.DATASTORE_ID;
+                const imageSetId = selectedImageSet.imageSetId;
+                
+                const fetchStart = performance.now();
+                
+                // Use AWS SDK to get the image frame
+                const params = {
+                    datastoreId: datastoreId,
+                    imageSetId: imageSetId,
+                    imageFrameInformation: {
+                        imageFrameId: frame.imageFrameId
+                    }
+                };
+                
+                const response = await healthImagingClient.getImageFrame(params).promise();
+                const fetchTime = performance.now() - fetchStart;
+                
+                // The response contains the HTJ2K encoded image frame
+                const encodedData = response.imageFrameBlob;
+                
+                // Decode using worker
+                const decodeStart = performance.now();
+                const decoded = await decodeHTJ2K(encodedData);
+                const decodeTime = performance.now() - decodeStart;
+                
+                // Update metrics
+                document.getElementById('metric-fetch').textContent = fetchTime.toFixed(0);
+                document.getElementById('metric-decode').textContent = decodeTime.toFixed(0);
+                document.getElementById('metric-size').textContent = formatBytes(encodedData.byteLength);
+                
+                // Create cornerstone image and display
+                const image = createCornerstoneImage(frame, decoded);
+                cornerstone.displayImage(cornerstoneElement, image);
+                
+            } catch (error) {
+                console.error('Failed to load frame:', error);
+                showToast('Failed to load frame: ' + error.message, 'error');
+            }
+        }
+        
+        function decodeHTJ2K(encodedData) {
+            return new Promise((resolve, reject) => {
+                const requestId = Date.now();
+                
+                const handler = (e) => {
+                    if (e.data.requestId === requestId) {
+                        htj2kWorker.removeEventListener('message', handler);
+                        if (e.data.success) {
+                            resolve({
+                                frameInfo: e.data.frameInfo,
+                                pixelData: new Uint8Array(e.data.pixelData)
+                            });
+                        } else {
+                            reject(new Error(e.data.error));
+                        }
+                    }
+                };
+                
+                htj2kWorker.addEventListener('message', handler);
+                htj2kWorker.postMessage({
+                    type: 'decodeBuffer',
+                    requestId,
+                    buffer: encodedData
+                }, [encodedData.buffer]);
+            });
+        }
+        
+        function createCornerstoneImage(frame, decoded) {
+            const { frameInfo, pixelData } = decoded;
+            const dicom = frame.dicom || {};
+            
+            // Determine pixel data type
+            let typedPixelData;
+            if (frameInfo.componentCount === 3) {
+                // RGB - convert to RGBA
+                typedPixelData = convertToRgba(pixelData, frameInfo);
+            } else if (frameInfo.bitsPerSample <= 8) {
+                typedPixelData = new Uint8Array(pixelData.buffer);
+            } else if (frameInfo.isSigned) {
+                typedPixelData = new Int16Array(pixelData.buffer);
+            } else {
+                typedPixelData = new Uint16Array(pixelData.buffer);
+            }
+            
+            // Calculate min/max
+            let min = Infinity, max = -Infinity;
+            for (let i = 0; i < typedPixelData.length; i++) {
+                if (typedPixelData[i] < min) min = typedPixelData[i];
+                if (typedPixelData[i] > max) max = typedPixelData[i];
+            }
+            
+            const image = {
+                imageId: `healthimaging:${frame.imageFrameId}`,
+                minPixelValue: min,
+                maxPixelValue: max,
+                slope: parseFloat(dicom.RescaleSlope) || 1,
+                intercept: parseFloat(dicom.RescaleIntercept) || 0,
+                windowCenter: parseFloat(dicom.WindowCenter) || (min + max) / 2,
+                windowWidth: parseFloat(dicom.WindowWidth) || (max - min),
+                rows: frameInfo.height,
+                columns: frameInfo.width,
+                height: frameInfo.height,
+                width: frameInfo.width,
+                color: frameInfo.componentCount === 3,
+                rgba: frameInfo.componentCount === 3,
+                columnPixelSpacing: dicom.PixelSpacing ? parseFloat(dicom.PixelSpacing[1]) : 1,
+                rowPixelSpacing: dicom.PixelSpacing ? parseFloat(dicom.PixelSpacing[0]) : 1,
+                invert: dicom.PhotometricInterpretation === 'MONOCHROME1',
+                sizeInBytes: pixelData.length,
+                getPixelData: () => typedPixelData,
+                render: frameInfo.componentCount === 3 ? 
+                    cornerstone.renderColorImage : cornerstone.renderGrayscaleImage
+            };
+            
+            return image;
+        }
+        
+        function convertToRgba(pixelData, frameInfo) {
+            const pixels = frameInfo.width * frameInfo.height;
+            const rgba = new Uint8ClampedArray(pixels * 4);
+            const shift = frameInfo.bitsPerSample > 8 ? 8 : 0;
+            
+            let outIdx = 0, inIdx = 0;
+            for (let i = 0; i < pixels; i++) {
+                rgba[outIdx++] = pixelData[inIdx++] >> shift;
+                rgba[outIdx++] = pixelData[inIdx++] >> shift;
+                rgba[outIdx++] = pixelData[inIdx++] >> shift;
+                rgba[outIdx++] = 255;
+            }
+            return rgba;
+        }
+        
+        // Frame navigation
+        function prevFrame() { loadFrame(currentFrameIndex - 1); }
+        function nextFrame() { loadFrame(currentFrameIndex + 1); }
+        function goToFrame(index) { loadFrame(parseInt(index)); }
+        
+        function resetView() {
+            if (cornerstoneElement) {
+                cornerstone.reset(cornerstoneElement);
             }
         }
         
         // ============================================================================
-        // Utility Functions
+        // Worker Message Handler
         // ============================================================================
         
-        function parseJwt(token) {
-            const base64Url = token.split('.')[1];
-            const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-            const jsonPayload = decodeURIComponent(atob(base64).split('').map(c => {
-                return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-            }).join(''));
-            return JSON.parse(jsonPayload);
-        }
-        
-        function showToast(message, type = 'info') {
-            const container = document.getElementById('toast-container');
-            const toast = document.createElement('div');
-            toast.className = `toast ${type}`;
-            toast.innerHTML = `
-                <span>${type === 'success' ? '✓' : type === 'error' ? '✗' : 'ℹ'}</span>
-                <span>${message}</span>
-            `;
-            container.appendChild(toast);
-            
-            setTimeout(() => {
-                toast.style.animation = 'slideIn 0.3s ease reverse';
-                setTimeout(() => toast.remove(), 300);
-            }, 4000);
+        function handleWorkerMessage(e) {
+            if (e.data.type === 'ready') {
+                console.log('HTJ2K decoder ready');
+            } else if (e.data.type === 'error') {
+                console.error('Worker error:', e.data.error);
+            }
         }
         
         // ============================================================================
@@ -818,100 +1021,97 @@
         // ============================================================================
         
         async function handleFileUpload(event) {
-            const file = event.target.files[0];
-            if (!file) return;
+            const files = event.target.files;
+            if (!files.length) return;
             
-            const progressContainer = document.getElementById('upload-progress');
-            const progressBar = document.getElementById('upload-progress-bar');
-            const statusText = document.getElementById('upload-status');
+            showToast(`Uploading ${files.length} file(s)...`, 'info');
             
-            progressContainer.style.display = 'block';
-            progressBar.style.width = '0%';
-            statusText.textContent = 'Getting upload URL...';
-            
-            try {
-                // Get presigned URL
-                const urlResponse = await fetch(
-                    `${window.APP_CONFIG.API_ENDPOINT}/get-presigned-url?` +
-                    `operation=upload&filename=${encodeURIComponent(file.name)}&contentType=application/dicom`
-                );
-                
-                if (!urlResponse.ok) {
-                    throw new Error('Failed to get upload URL');
+            for (const file of files) {
+                try {
+                    const urlResponse = await fetch(
+                        `${window.APP_CONFIG.API_ENDPOINT}/get-presigned-url?` +
+                        `operation=upload&filename=${encodeURIComponent(file.name)}&contentType=application/dicom`
+                    );
+                    
+                    if (!urlResponse.ok) throw new Error('Failed to get upload URL');
+                    
+                    const { url } = await urlResponse.json();
+                    
+                    await fetch(url, {
+                        method: 'PUT',
+                        body: file,
+                        headers: { 'Content-Type': 'application/dicom' }
+                    });
+                    
+                } catch (error) {
+                    console.error('Upload failed:', error);
+                    showToast(`Failed to upload ${file.name}`, 'error');
                 }
-                
-                const { url, key, uploadId } = await urlResponse.json();
-                
-                statusText.textContent = 'Uploading file...';
-                progressBar.style.width = '30%';
-                
-                // Upload file to S3
-                const uploadResponse = await fetch(url, {
-                    method: 'PUT',
-                    body: file,
-                    headers: {
-                        'Content-Type': 'application/dicom'
-                    }
-                });
-                
-                if (!uploadResponse.ok) {
-                    throw new Error('Upload failed');
-                }
-                
-                progressBar.style.width = '100%';
-                statusText.textContent = 'Upload complete! Processing...';
-                
-                showToast(`File uploaded successfully. Upload ID: ${uploadId}`, 'success');
-                
-                // Refresh image sets after a delay (allow time for ingestion)
-                setTimeout(() => {
-                    progressContainer.style.display = 'none';
-                    refreshImageSets();
-                }, 3000);
-                
-            } catch (error) {
-                console.error('Upload failed:', error);
-                statusText.textContent = 'Upload failed: ' + error.message;
-                progressBar.style.width = '0%';
-                progressBar.style.background = 'var(--error)';
-                showToast('Upload failed: ' + error.message, 'error');
-                
-                setTimeout(() => {
-                    progressContainer.style.display = 'none';
-                    progressBar.style.background = 'var(--accent-primary)';
-                }, 3000);
             }
             
-            // Reset file input
+            showToast('Upload complete! Processing may take a few minutes.', 'success');
             event.target.value = '';
+            setTimeout(refreshImageSets, 5000);
         }
         
         // ============================================================================
-        // PostMessage Communication with OHIF iframe
+        // ML Pipeline
         // ============================================================================
         
-        window.addEventListener('message', (event) => {
-            // Verify origin
-            if (!event.origin.includes(window.APP_CONFIG.OHIF.VIEWER_URL.replace('https://', ''))) {
-                return;
-            }
+        async function triggerPipeline() {
+            if (!selectedImageSet) return;
             
-            const { type, data } = event.data || {};
+            const btn = document.getElementById('btn-pipeline');
+            btn.disabled = true;
+            btn.textContent = 'Starting...';
             
-            switch (type) {
-                case 'OHIF_READY':
-                    console.log('OHIF viewer ready');
-                    break;
-                case 'OHIF_ERROR':
-                    console.error('OHIF error:', data);
-                    showToast('Viewer error: ' + data.message, 'error');
-                    break;
-                case 'STUDY_LOADED':
-                    console.log('Study loaded:', data);
-                    showToast('Study loaded successfully', 'success');
-                    break;
+            try {
+                const response = await fetch(`${window.APP_CONFIG.API_ENDPOINT}/trigger-pipeline`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ imageSetId: selectedImageSet.imageSetId })
+                });
+                
+                if (!response.ok) throw new Error('Failed to trigger pipeline');
+                
+                showToast('ML Pipeline started!', 'success');
+            } catch (error) {
+                showToast('Failed to start pipeline', 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Verify & Train Model';
             }
-        });
+        }
+        
+        // ============================================================================
+        // Utilities
+        // ============================================================================
+        
+        function parseJwt(token) {
+            const base64Url = token.split('.')[1];
+            const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+            return JSON.parse(decodeURIComponent(atob(base64).split('').map(c => 
+                '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)
+            ).join('')));
+        }
+        
+        function formatBytes(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        }
+        
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.innerHTML = `<span>${type === 'success' ? '✓' : type === 'error' ? '✗' : 'ℹ'}</span><span>${message}</span>`;
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.style.animation = 'slideIn 0.3s ease reverse';
+                setTimeout(() => toast.remove(), 300);
+            }, 4000);
+        }
     </script>
 </body>
 </html>

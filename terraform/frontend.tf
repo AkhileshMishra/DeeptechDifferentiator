@@ -262,6 +262,31 @@ resource "aws_s3_object" "frontend_config" {
   depends_on = [local_file.frontend_config]
 }
 
+# HTJ2K Decoder - OpenJPH WASM files
+resource "aws_s3_object" "openjph_js" {
+  bucket       = aws_s3_bucket.frontend.id
+  key          = "static/js/openjphjs.js"
+  source       = "${path.module}/../frontend/static/js/openjphjs.js"
+  content_type = "application/javascript"
+  etag         = filemd5("${path.module}/../frontend/static/js/openjphjs.js")
+}
+
+resource "aws_s3_object" "openjph_wasm" {
+  bucket       = aws_s3_bucket.frontend.id
+  key          = "static/js/openjphjs.wasm"
+  source       = "${path.module}/../frontend/static/js/openjphjs.wasm"
+  content_type = "application/wasm"
+  etag         = filemd5("${path.module}/../frontend/static/js/openjphjs.wasm")
+}
+
+resource "aws_s3_object" "htj2k_worker" {
+  bucket       = aws_s3_bucket.frontend.id
+  key          = "static/js/htj2k-worker.js"
+  source       = "${path.module}/../frontend/static/js/htj2k-worker.js"
+  content_type = "application/javascript"
+  etag         = filemd5("${path.module}/../frontend/static/js/htj2k-worker.js")
+}
+
 # ============================================================================
 # IAM ROLE FOR FRONTEND LAMBDAS
 # ============================================================================

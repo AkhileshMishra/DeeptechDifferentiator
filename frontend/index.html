@@ -886,16 +886,16 @@
                 
                 const fetchStart = performance.now();
                 
-                // Use CloudFront proxy with Lambda@Edge for SigV4 signing
-                // POST request with JSON body as required by HealthImaging API
-                const url = `${proxyUrl}/datastore/${datastoreId}/imageSet/${imageSetId}/getImageFrame`;
+                // Use CloudFront proxy with Fargate backend for SigV4 signing
+                // GET request with query param - Fargate converts to POST for HealthImaging API
+                // This allows CloudFront to cache responses (frames are immutable)
+                const url = `${proxyUrl}/datastore/${datastoreId}/imageSet/${imageSetId}/getImageFrame?imageFrameId=${frame.imageFrameId}`;
                 
                 const response = await fetch(url, {
-                    method: 'POST',
+                    method: 'GET',
                     headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ imageFrameId: frame.imageFrameId })
+                        'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
+                    }
                 });
                 
                 if (!response.ok) {

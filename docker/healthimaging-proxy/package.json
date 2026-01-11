@@ -1,0 +1,16 @@
+{
+  "name": "healthimaging-proxy",
+  "version": "1.0.0",
+  "description": "SigV4 signing proxy for AWS HealthImaging",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-medical-imaging": "^3.400.0",
+    "@aws-sdk/credential-provider-node": "^3.400.0",
+    "@smithy/signature-v4": "^2.0.0",
+    "@smithy/protocol-http": "^3.0.0",
+    "@aws-crypto/sha256-js": "^5.0.0"
+  }
+}

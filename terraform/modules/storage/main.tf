@@ -67,15 +67,25 @@ resource "aws_s3_bucket_lifecycle_configuration" "training_data" {
   }
 }
 
-# CORS configuration for browser access to DICOM files
+# CORS configuration for browser access to DICOM files (GET, HEAD, PUT for uploads)
 resource "aws_s3_bucket_cors_configuration" "training_data" {
   bucket = aws_s3_bucket.training_data.id
 
+  # Rule for reading files
   cors_rule {
     allowed_headers = ["*"]
     allowed_methods = ["GET", "HEAD"]
     allowed_origins = ["*"]
     expose_headers  = ["ETag", "Content-Length", "Content-Type"]
+    max_age_seconds = 3600
+  }
+
+  # Rule for uploading files via presigned URLs
+  cors_rule {
+    allowed_headers = ["*"]
+    allowed_methods = ["PUT", "POST"]
+    allowed_origins = ["*"]
+    expose_headers  = ["ETag", "Content-Length", "Content-Type", "x-amz-request-id", "x-amz-id-2"]
     max_age_seconds = 3600
   }
 }

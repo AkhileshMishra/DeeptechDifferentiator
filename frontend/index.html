@@ -513,12 +513,16 @@
         
         document.addEventListener('DOMContentLoaded', async () => {
             console.log('Healthcare Imaging MLOps Platform initializing...');
+            console.log('Current URL:', window.location.href);
+            console.log('Pathname:', window.location.pathname);
+            console.log('Search:', window.location.search);
             
             // Initialize HTJ2K decoder worker
             initWorker();
             
-            // Check for OAuth callback
+            // Check for OAuth callback (handles both /callback?code= and /?code=)
             if (window.location.search.includes('code=')) {
+                console.log('OAuth callback detected, exchanging code for tokens...');
                 await handleOAuthCallback();
                 return;
             }
@@ -572,9 +576,17 @@
             try {
                 const urlParams = new URLSearchParams(window.location.search);
                 const code = urlParams.get('code');
+                console.log('Authorization code received:', code ? 'yes' : 'no');
+                
                 if (!code) throw new Error('No authorization code');
                 
                 const config = window.APP_CONFIG.COGNITO;
+                console.log('Exchanging code for tokens at:', `https://${config.DOMAIN}/oauth2/token`);
+                
+                // The redirect_uri must match EXACTLY what was used in the authorize request
+                const redirectUri = config.OAUTH.REDIRECT_SIGN_IN;
+                console.log('Using redirect_uri:', redirectUri);
+                
                 const tokenResponse = await fetch(`https://${config.DOMAIN}/oauth2/token`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -582,25 +594,35 @@
                         grant_type: 'authorization_code',
                         client_id: config.CLIENT_ID,
                         code: code,
-                        redirect_uri: config.OAUTH.REDIRECT_SIGN_IN
+                        redirect_uri: redirectUri
                     })
                 });
                 
-                if (!tokenResponse.ok) throw new Error('Token exchange failed');
+                console.log('Token response status:', tokenResponse.status);
+                
+                if (!tokenResponse.ok) {
+                    const errorText = await tokenResponse.text();
+                    console.error('Token exchange error:', errorText);
+                    throw new Error(`Token exchange failed: ${errorText}`);
+                }
                 
                 const tokens = await tokenResponse.json();
+                console.log('Tokens received successfully');
+                
                 const payload = parseJwt(tokens.id_token);
+                console.log('User email:', payload.email);
                 
                 localStorage.setItem('idToken', tokens.id_token);
                 localStorage.setItem('accessToken', tokens.access_token);
                 localStorage.setItem('refreshToken', tokens.refresh_token);
                 localStorage.setItem('userEmail', payload.email);
                 
-                window.history.replaceState({}, document.title, window.location.pathname);
-                window.location.reload();
+                // Clear the URL and reload to show main app
+                window.history.replaceState({}, document.title, '/');
+                window.location.href = '/';
             } catch (error) {
                 console.error('OAuth callback failed:', error);
-                showToast('Authentication failed', 'error');
+                showToast('Authentication failed: ' + error.message, 'error');
                 showLoginScreen();
             }
         }

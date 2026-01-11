@@ -5,7 +5,7 @@
 # ============================================================================
 
 # ============================================================================
-# LAMBDA@EDGE FOR JWT VALIDATION AND REQUEST SIGNING
+# LAMBDA@EDGE FOR CORS AND JWT VALIDATION (viewer-request)
 # ============================================================================
 
 # IAM Role for Lambda@Edge (must be in us-east-1 for CloudFront)
@@ -76,6 +76,27 @@ resource "aws_lambda_function" "healthimaging_signer" {
   publish          = true  # Required for Lambda@Edge
   
   # Lambda@Edge must be in us-east-1
+  provider = aws
+}
+
+# Lambda@Edge function for viewer request (CORS preflight handling)
+data "archive_file" "healthimaging_cors_zip" {
+  type        = "zip"
+  source_dir  = "${path.module}/../lambda_edge/cors_handler"
+  output_path = "${path.module}/lambda_zips/healthimaging_cors.zip"
+}
+
+resource "aws_lambda_function" "healthimaging_cors" {
+  filename         = data.archive_file.healthimaging_cors_zip.output_path
+  function_name    = "${var.project_name}-${var.environment}-hi-cors"
+  role             = aws_iam_role.healthimaging_edge_role.arn
+  handler          = "index.handler"
+  source_code_hash = data.archive_file.healthimaging_cors_zip.output_base64sha256
+  runtime          = "nodejs18.x"
+  timeout          = 5
+  memory_size      = 128
+  publish          = true  # Required for Lambda@Edge
+  
   provider = aws
 }
 
@@ -183,7 +204,14 @@ resource "aws_cloudfront_distribution" "healthimaging_proxy" {
     viewer_protocol_policy = "redirect-to-https"
     compress               = true
     
-    # Lambda@Edge for request signing
+    # Lambda@Edge for CORS preflight (viewer-request)
+    lambda_function_association {
+      event_type   = "viewer-request"
+      lambda_arn   = aws_lambda_function.healthimaging_cors.qualified_arn
+      include_body = false
+    }
+    
+    # Lambda@Edge for request signing (origin-request)
     lambda_function_association {
       event_type   = "origin-request"
       lambda_arn   = aws_lambda_function.healthimaging_signer.qualified_arn

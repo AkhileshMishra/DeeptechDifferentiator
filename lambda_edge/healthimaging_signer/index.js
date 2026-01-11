@@ -1,17 +1,11 @@
 /**
  * Lambda@Edge Origin Request Handler
  * Signs requests to AWS HealthImaging using SigV4
- * 
- * This function runs at CloudFront edge locations and:
- * 1. Validates the incoming JWT (optional - can be done at viewer-request)
- * 2. Signs the request with AWS SigV4 for HealthImaging
- * 3. Forwards to the HealthImaging runtime endpoint
  */
 
 const crypto = require('crypto');
 
-// Configuration - these are set at deploy time
-const REGION = process.env.AWS_REGION || 'us-east-1';
+const REGION = 'us-east-1';
 const SERVICE = 'medical-imaging';
 
 exports.handler = async (event) => {
@@ -59,9 +53,6 @@ exports.handler = async (event) => {
             request.headers['x-amz-security-token'] = [{ key: 'X-Amz-Security-Token', value: credentials.sessionToken }];
         }
         
-        // Remove any existing authorization header from client
-        delete request.headers['Authorization'];
-        
         return request;
         
     } catch (error) {
@@ -69,7 +60,7 @@ exports.handler = async (event) => {
         return {
             status: '500',
             statusDescription: 'Internal Server Error',
-            body: JSON.stringify({ error: 'Failed to sign request' })
+            body: JSON.stringify({ error: 'Failed to sign request: ' + error.message })
         };
     }
 };
@@ -84,20 +75,22 @@ function signRequest({ method, host, path, querystring, body, credentials, regio
     // Hash the body
     const bodyHash = sha256(body);
     
-    // Create canonical request
-    const canonicalHeaders = [
-        `host:${host}`,
-        `x-amz-content-sha256:${bodyHash}`,
-        `x-amz-date:${datetime}`,
-        credentials.sessionToken ? `x-amz-security-token:${credentials.sessionToken}` : null
-    ].filter(Boolean).join('\n') + '\n';
+    // Create canonical headers
+    const headersList = [
+        ['host', host],
+        ['x-amz-content-sha256', bodyHash],
+        ['x-amz-date', datetime]
+    ];
     
-    const signedHeadersList = [
-        'host',
-        'x-amz-content-sha256',
-        'x-amz-date',
-        credentials.sessionToken ? 'x-amz-security-token' : null
-    ].filter(Boolean).join(';');
+    if (credentials.sessionToken) {
+        headersList.push(['x-amz-security-token', credentials.sessionToken]);
+    }
+    
+    // Sort headers
+    headersList.sort((a, b) => a[0].localeCompare(b[0]));
+    
+    const canonicalHeaders = headersList.map(h => `${h[0]}:${h[1]}`).join('\n') + '\n';
+    const signedHeadersList = headersList.map(h => h[0]).join(';');
     
     const canonicalRequest = [
         method,
